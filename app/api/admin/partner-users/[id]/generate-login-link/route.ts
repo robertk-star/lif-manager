@@ -75,21 +75,18 @@ export async function POST(
     console.error("[generate-login-link]", insertError);
     return NextResponse.json(
       {
-        error:
-          "Failed to generate login link. Confirm partner_login_tokens table exists in Supabase.",
+        error: `Failed to save login token: ${insertError.message}. Check partner_login_tokens table exists.`,
       },
       { status: 500 }
     );
   }
 
-  // Prefer public site URL so links are never vercel.app preview hosts
   const origin =
     process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
     process.env.LIF_PUBLIC_URL?.replace(/\/$/, "") ||
     new URL(request.url).origin;
 
-  // Hit the API route directly — sets cookie on the same response as the redirect
-  const loginUrl = `${origin}/api/partner/login?token=${encodeURIComponent(rawToken)}`;
+  const loginUrl = `${origin}/partner/login?token=${rawToken}`;
 
   return NextResponse.json({
     success: true,
