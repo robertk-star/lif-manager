@@ -1,31 +1,53 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function PartnerLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [step, setStep] = useState<"email" | "code">("email");
+  const formRef = useRef<HTMLFormElement>(null);
+  const [step, setStep] = useState<"email" | "code" | "token">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
+  const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = searchParams.get("token");
-    if (token) {
-      window.location.href = `/api/partner/login?token=${encodeURIComponent(token)}`;
-      return;
+    const t = searchParams.get("token");
+    if (t) {
+      setToken(t);
+      setStep("token");
+      setInfo("Signing you in…");
+      const id = window.setTimeout(() => {
+        formRef.current?.submit();
+      }, 50);
+      return () => window.clearTimeout(id);
     }
 
     const err = searchParams.get("error");
-    if (err === "missing") setError("Login link is missing a token.");
-    if (err === "invalid") setError("This login link is invalid.");
-    if (err === "used") setError("This login link was already used.");
-    if (err === "expired") setError("This login link has expired.");
-    if (err === "inactive") setError("This partner account is not active.");
+    const detail = searchParams.get("detail");
+    if (err === "missing") setError(detail || "Login link is missing a token.");
+    if (err === "invalid")
+      setError(
+        detail
+          ? `Login failed: ${detail}`
+          : "This login link is invalid. Generate a new one from Partners → Manage."
+      );
+    if (err === "used")
+      setError(
+        detail ||
+          "This login link was already used. Generate a new one from Partners → Manage."
+      );
+    if (err === "expired")
+      setError(detail || "This login link has expired. Generate a new one.");
+    if (err === "inactive")
+      setError(
+        detail ||
+          "This partner account or user is not active. Activate them in Partners → Manage."
+      );
   }, [searchParams]);
 
   async function requestCode(e: React.FormEvent) {
@@ -62,13 +84,14 @@ function PartnerLoginForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, code }),
+        credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Invalid code.");
         return;
       }
-      router.push(data.redirectTo ?? "/partner/leads");
+      window.location.href = data.redirectTo ?? "/partner/leads";
     } catch {
       setError("Network error.");
     } finally {
@@ -83,11 +106,38 @@ function PartnerLoginForm() {
       </p>
       <h1 className="mt-1 text-xl font-bold text-slate-900">Partner Sign In</h1>
       <p className="mt-2 text-sm text-slate-500">
-        Enter the email on your partner user account. We’ll send a one-time code.
-        Or open a login link provided by admin.
+        Use a one-time login link from admin, or enter your partner user email for a
+        code.
       </p>
 
-      {step === "email" ? (
+      <form
+        ref={formRef}
+        method="POST"
+        action="/api/partner/login"
+        className="hidden"
+        aria-hidden
+      >
+        <input type="hidden" name="token" value={token} />
+      </form>
+
+      {step === "token" && (
+        <div className="mt-6 space-y-3">
+          {info && <p className="text-sm text-slate-600">{info}</p>}
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <p className="text-xs text-slate-400">
+            If nothing happens, click the button below.
+          </p>
+          <button
+            type="button"
+            onClick={() => formRef.current?.submit()}
+            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white"
+          >
+            Continue to sign in
+          </button>
+        </div>
+      )}
+
+      {step === "email" && (
         <form onSubmit={requestCode} className="mt-6 space-y-4">
           <div>
             <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
@@ -112,7 +162,9 @@ function PartnerLoginForm() {
             {loading ? "Sending…" : "Send Login Code"}
           </button>
         </form>
-      ) : (
+      )}
+
+      {step === "code" && (
         <form onSubmit={verifyCode} className="mt-6 space-y-4">
           {info && <p className="text-sm text-slate-600">{info}</p>}
           <div>
