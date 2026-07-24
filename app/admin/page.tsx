@@ -32,6 +32,9 @@ export default function AdminDashboardPage() {
             <a href="/admin/partners" className="text-sm text-slate-500 hover:text-slate-900">
               Partners
             </a>
+            <a href="/admin/invoices" className="text-sm text-slate-500 hover:text-slate-900">
+              Invoices
+            </a>
           </div>
           <button
             onClick={handleLogout}
@@ -45,7 +48,7 @@ export default function AdminDashboardPage() {
       <main className="mx-auto max-w-5xl px-4 py-12">
         <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
         <p className="mt-2 text-slate-600">
-          Streamlined leads manager. Start with the lead queue or partners.
+          Streamlined leads manager: route leads, manage partners, create invoices.
         </p>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -67,10 +70,15 @@ export default function AdminDashboardPage() {
               Manage who receives leads and routing preferences.
             </p>
           </a>
-          <div className="rounded-xl border border-dashed border-slate-200 bg-white p-6 opacity-60">
+          <a
+            href="/admin/invoices"
+            className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition hover:border-slate-300"
+          >
             <h2 className="font-semibold text-slate-900">Invoices</h2>
-            <p className="mt-1 text-sm text-slate-500">Coming next</p>
-          </div>
+            <p className="mt-1 text-sm text-slate-500">
+              Create drafts from billable leads; mark sent or paid.
+            </p>
+          </a>
         </div>
       </main>
     </div>
