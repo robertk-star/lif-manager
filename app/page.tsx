@@ -17,10 +17,10 @@ export default function HomePage() {
 
       <div className="flex flex-wrap items-center justify-center gap-4">
         <Link
-          href="/admin"
+          href="/admin/login"
           className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
         >
-          Admin
+          Admin Sign In
         </Link>
         <Link
           href="/partner/login"
