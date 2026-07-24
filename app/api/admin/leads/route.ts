@@ -49,7 +49,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Failed to fetch leads." }, { status: 500 });
   }
 
-  const leads = (data ?? []) as Array<Record<string, unknown>>;
+  const leads = (data ?? []) as unknown as Array<Record<string, unknown>>;
   const partnerIds = Array.from(
     new Set(
       leads
@@ -65,11 +65,8 @@ export async function GET(request: Request) {
       .select("id, firm_name")
       .in("id", partnerIds);
 
-    for (const p of partners ?? []) {
-      partnerNames.set(
-        (p as { id: string }).id,
-        (p as { firm_name: string }).firm_name
-      );
+    for (const p of (partners ?? []) as unknown as Array<{ id: string; firm_name: string }>) {
+      partnerNames.set(p.id, p.firm_name);
     }
   }
 
