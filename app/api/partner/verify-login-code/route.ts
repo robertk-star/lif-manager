@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { rateLimitResponse } from "@/lib/rateLimit";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
@@ -137,20 +136,29 @@ export async function POST(request: Request) {
       .eq("id", typedUser.id),
   ]);
 
-  const sessionToken = await createPartnerSessionToken(
-    account.id as string,
-    typedUser.id,
-    typedUser.role
-  );
+  let sessionToken: string;
+  try {
+    sessionToken = await createPartnerSessionToken(
+      account.id as string,
+      typedUser.id,
+      typedUser.role
+    );
+  } catch (err) {
+    console.error("[verify-login-code] session error:", err);
+    return NextResponse.json(
+      { error: "Server session configuration error. Contact support." },
+      { status: 500 }
+    );
+  }
 
-  const cookieStore = await cookies();
-  cookieStore.set(PARTNER_COOKIE_NAME, sessionToken, {
+  const response = NextResponse.json({ success: true, redirectTo: "/partner/leads" });
+  response.cookies.set(PARTNER_COOKIE_NAME, sessionToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: true,
     sameSite: "lax",
     path: "/",
     maxAge: THIRTY_DAYS_SECONDS,
   });
 
-  return NextResponse.json({ success: true, redirectTo: "/partner/leads" });
+  return response;
 }
