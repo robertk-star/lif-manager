@@ -7,7 +7,6 @@ export default function AdminDashboardPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Soft check: if leads API returns 401, send to login
     fetch("/api/admin/leads?limit=1").then((res) => {
       if (res.status === 401) router.replace("/admin/login");
     });
@@ -30,6 +29,9 @@ export default function AdminDashboardPage() {
             <a href="/admin/leads" className="text-sm text-slate-500 hover:text-slate-900">
               Leads
             </a>
+            <a href="/admin/partners" className="text-sm text-slate-500 hover:text-slate-900">
+              Partners
+            </a>
           </div>
           <button
             onClick={handleLogout}
@@ -43,7 +45,7 @@ export default function AdminDashboardPage() {
       <main className="mx-auto max-w-5xl px-4 py-12">
         <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
         <p className="mt-2 text-slate-600">
-          Streamlined leads manager. Start with the lead queue.
+          Streamlined leads manager. Start with the lead queue or partners.
         </p>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -56,10 +58,15 @@ export default function AdminDashboardPage() {
               View DBS leads, filters, detail, and manual reassignment.
             </p>
           </a>
-          <div className="rounded-xl border border-dashed border-slate-200 bg-white p-6 opacity-60">
+          <a
+            href="/admin/partners"
+            className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition hover:border-slate-300"
+          >
             <h2 className="font-semibold text-slate-900">Partners</h2>
-            <p className="mt-1 text-sm text-slate-500">Coming next</p>
-          </div>
+            <p className="mt-1 text-sm text-slate-500">
+              Manage who receives leads and routing preferences.
+            </p>
+          </a>
           <div className="rounded-xl border border-dashed border-slate-200 bg-white p-6 opacity-60">
             <h2 className="font-semibold text-slate-900">Invoices</h2>
             <p className="mt-1 text-sm text-slate-500">Coming next</p>
