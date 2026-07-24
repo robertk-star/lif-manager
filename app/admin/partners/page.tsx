@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 type AccountStatus = "active" | "inactive" | "pending" | "suspended";
 type LeadStatus = "active" | "paused" | "at_capacity";
+type UserRole = "owner" | "admin" | "staff" | "viewer";
 
 interface PartnerAccount {
   id: string;
@@ -28,7 +29,17 @@ interface PartnerAccount {
   last_login_at: string | null;
   created_at: string;
   internal_notes?: string | null;
-  lead_notes?: string | null;
+}
+
+interface PartnerUser {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: UserRole;
+  status: string;
+  last_login_at: string | null;
+  invited_at: string | null;
 }
 
 const ACCOUNT_STATUS_OPTIONS: AccountStatus[] = [
@@ -38,6 +49,7 @@ const ACCOUNT_STATUS_OPTIONS: AccountStatus[] = [
   "suspended",
 ];
 const LEAD_STATUS_OPTIONS: LeadStatus[] = ["active", "paused", "at_capacity"];
+const ROLE_OPTIONS: UserRole[] = ["owner", "admin", "staff", "viewer"];
 
 const ACCOUNT_STATUS_COLORS: Record<AccountStatus, string> = {
   active: "bg-green-100 text-green-800",
@@ -58,13 +70,282 @@ function formatDate(iso: string | null) {
 function coverageLabel(p: PartnerAccount) {
   if (p.routing_scope === "united_states") {
     const excluded = p.routing_excluded_states ?? [];
-    return excluded.length
-      ? `US except ${excluded.join(", ")}`
-      : "United States";
+    return excluded.length ? `US except ${excluded.join(", ")}` : "United States";
   }
   const states = p.routing_states ?? [];
   if (states.length) return states.join(", ");
   return p.states_served || "—";
+}
+
+function PartnerUsersSection({ partnerAccountId }: { partnerAccountId: string }) {
+  const [users, setUsers] = useState<PartnerUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<UserRole>("owner");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [linkByUser, setLinkByUser] = useState<
+    Record<string, { url: string; expiry: string }>
+  >({});
+  const [linkBusy, setLinkBusy] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/partners/${partnerAccountId}/users`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to load users.");
+        return;
+      }
+      setUsers(data.data ?? []);
+    } catch {
+      setError("Network error.");
+    } finally {
+      setLoading(false);
+    }
+  }, [partnerAccountId]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  async function handleAddUser(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setFormError(null);
+    try {
+      const res = await fetch(`/api/admin/partners/${partnerAccountId}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          role,
+          status: "active",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFormError(data.error ?? "Failed to create user.");
+        return;
+      }
+      setUsers((prev) => [...prev, data.data as PartnerUser]);
+      setShowForm(false);
+      setFirstName("");
+      setLastName("");
+      setEmail("");
+      setRole("owner");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function setUserStatus(userId: string, status: string) {
+    const res = await fetch(`/api/admin/partner-users/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.data) {
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...data.data } : u)));
+    }
+  }
+
+  async function generateLink(userId: string) {
+    setLinkBusy(userId);
+    try {
+      const res = await fetch(`/api/admin/partner-users/${userId}/generate-login-link`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to generate link.");
+        return;
+      }
+      setLinkByUser((prev) => ({
+        ...prev,
+        [userId]: { url: data.loginUrl, expiry: data.expiresAt },
+      }));
+    } finally {
+      setLinkBusy(null);
+    }
+  }
+
+  function copyLink(userId: string) {
+    const link = linkByUser[userId];
+    if (!link) return;
+    navigator.clipboard.writeText(link.url).then(() => {
+      setCopied(userId);
+      setTimeout(() => setCopied(null), 2500);
+    });
+  }
+
+  return (
+    <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          Partner Users (login)
+        </h3>
+        {!showForm && (
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="rounded border border-slate-900 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-slate-900 hover:text-white"
+          >
+            + Add User
+          </button>
+        )}
+      </div>
+
+      <p className="text-xs text-slate-500">
+        Partners sign in with the email on a user below (code emailed) or via a one-time
+        link you generate.
+      </p>
+
+      {showForm && (
+        <form onSubmit={handleAddUser} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              required
+              placeholder="First name"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <input
+              required
+              placeholder="Last name"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <input
+            required
+            type="email"
+            placeholder="Email (used to log in)"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as UserRole)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          >
+            {ROLE_OPTIONS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          {formError && <p className="text-xs text-red-600">{formError}</p>}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Create User"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {loading && <p className="text-sm text-slate-400">Loading users…</p>}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {!loading && users.length === 0 && (
+        <p className="text-sm text-slate-400">
+          No users yet. Add at least one so the partner can log in.
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {users.map((user) => (
+          <div key={user.id} className="rounded-lg border border-slate-200 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">
+                  {user.first_name} {user.last_name}
+                </p>
+                <p className="text-xs text-slate-500">{user.email}</p>
+                <p className="mt-1 text-xs capitalize text-slate-500">
+                  {user.role} · {user.status} · last login {formatDate(user.last_login_at)}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {user.status !== "active" && (
+                  <button
+                    type="button"
+                    onClick={() => setUserStatus(user.id, "active")}
+                    className="rounded border border-green-600 px-2 py-1 text-xs font-semibold text-green-700"
+                  >
+                    Activate
+                  </button>
+                )}
+                {user.status === "active" && (
+                  <button
+                    type="button"
+                    onClick={() => setUserStatus(user.id, "inactive")}
+                    className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600"
+                  >
+                    Deactivate
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={linkBusy === user.id}
+                  onClick={() => generateLink(user.id)}
+                  className="rounded border border-slate-900 px-2 py-1 text-xs font-semibold text-slate-900 disabled:opacity-50"
+                >
+                  {linkBusy === user.id ? "Generating…" : "Generate Login Link"}
+                </button>
+              </div>
+            </div>
+
+            {linkByUser[user.id] && (
+              <div className="mt-2 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-2">
+                <p className="text-xs font-semibold text-amber-800">
+                  One-time link — expires {formatDate(linkByUser[user.id].expiry)}. Send to
+                  partner once.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={linkByUser[user.id].url}
+                    className="min-w-0 flex-1 truncate rounded border border-slate-300 bg-white px-2 py-1 text-xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyLink(user.id)}
+                    className="shrink-0 rounded bg-slate-900 px-2 py-1 text-xs font-semibold text-white"
+                  >
+                    {copied === user.id ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function PartnerDetailModal({
@@ -213,24 +494,7 @@ function PartnerDetailModal({
 
           {!loading && !error && partner && (
             <>
-              <section className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-xs font-medium uppercase text-slate-400">Email</p>
-                  <p className="text-slate-800">{partner.email}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase text-slate-400">Phone</p>
-                  <p className="text-slate-800">{partner.phone ?? "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase text-slate-400">Created</p>
-                  <p className="text-slate-800">{formatDate(partner.created_at)}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase text-slate-400">Last Login</p>
-                  <p className="text-slate-800">{formatDate(partner.last_login_at)}</p>
-                </div>
-              </section>
+              <PartnerUsersSection partnerAccountId={partner.id} />
 
               <section className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -466,6 +730,9 @@ export default function AdminPartnersPage() {
             <a href="/admin/partners" className="text-sm font-semibold text-slate-900">
               Partners
             </a>
+            <a href="/admin/invoices" className="text-sm text-slate-500 hover:text-slate-900">
+              Invoices
+            </a>
           </div>
           <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-slate-600">
             Sign Out
@@ -477,7 +744,7 @@ export default function AdminPartnersPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Partners</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Who can receive leads and their routing preferences.
+            Manage firms, routing, and who can log in as a partner user.
           </p>
         </div>
 
@@ -596,10 +863,6 @@ export default function AdminPartnersPage() {
             </div>
           )}
         </div>
-
-        <p className="text-center text-xs text-slate-400">
-          Showing {partners.length} partner{partners.length !== 1 ? "s" : ""}.
-        </p>
       </main>
 
       {selectedId && (
