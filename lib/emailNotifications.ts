@@ -50,10 +50,10 @@ type LeadForEmail = {
 
 function escapeHtml(value: string | null | undefined) {
   return String(value ?? "")
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, """)
+    .replace(/&/g, "&" + "amp;")
+    .replace(/</g, "&" + "lt;")
+    .replace(/>/g, "&" + "gt;")
+    .replace(/"/g, "&" + "quot;")
     .replace(/'/g, "&#039;");
 }
 
@@ -258,27 +258,25 @@ export async function sendLeadAssignedNotifications(input: {
       "For privacy, medical details are not included in this email. Please log in to review the full intake packet.",
     ].join("\n");
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; color: #0d1b2e; line-height: 1.5;">
-        <p>Hello ${escapeHtml(name)},</p>
-        <p>A new lead has been assigned to <strong>${escapeHtml(typedAccount.firm_name)}</strong>.</p>
-        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:16px 0;background:#f9fafb;">
-          <p style="margin:0 0 6px 0;"><strong>Lead:</strong> ${escapeHtml(leadTitle)}</p>
-          ${summaryLines
-            .map(
-              (line) =>
-                `<p style="margin:0 0 4px 0;font-size:13px;color:#4b5563;">${escapeHtml(line)}</p>`
-            )
-            .join("")}
-        </div>
-        <p>
-          <a href="${escapeHtml(leadUrl)}" style="display:inline-block;background:#1a3a5c;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">
-            Review Assigned Lead
-          </a>
-        </p>
-        <p style="font-size:13px;color:#4b5563;">For privacy, medical details are not included in this email.</p>
-      </div>
-    `;
+    const html = [
+      '<div style="font-family: Arial, sans-serif; color: #0d1b2e; line-height: 1.5;">',
+      `<p>Hello ${escapeHtml(name)},</p>`,
+      `<p>A new lead has been assigned to <strong>${escapeHtml(typedAccount.firm_name)}</strong>.</p>`,
+      '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:16px 0;background:#f9fafb;">',
+      `<p style="margin:0 0 6px 0;"><strong>Lead:</strong> ${escapeHtml(leadTitle)}</p>`,
+      ...summaryLines.map(
+        (line) =>
+          `<p style="margin:0 0 4px 0;font-size:13px;color:#4b5563;">${escapeHtml(line)}</p>`
+      ),
+      "</div>",
+      "<p>",
+      `<a href="${escapeHtml(leadUrl)}" style="display:inline-block;background:#1a3a5c;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">`,
+      "Review Assigned Lead",
+      "</a>",
+      "</p>",
+      '<p style="font-size:13px;color:#4b5563;">For privacy, medical details are not included in this email.</p>',
+      "</div>",
+    ].join("\n");
 
     const result = await sendTransactionalEmail({
       to: user.email,
