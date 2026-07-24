@@ -1,16 +1,33 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function PartnerLoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = searchParams.get("token");
+    if (token) {
+      // One-time magic link from admin — consume via API route
+      window.location.href = `/api/partner/login?token=${encodeURIComponent(token)}`;
+      return;
+    }
+
+    const err = searchParams.get("error");
+    if (err === "missing") setError("Login link is missing a token.");
+    if (err === "invalid") setError("This login link is invalid.");
+    if (err === "used") setError("This login link was already used.");
+    if (err === "expired") setError("This login link has expired.");
+    if (err === "inactive") setError("This partner account is not active.");
+  }, [searchParams]);
 
   async function requestCode(e: React.FormEvent) {
     e.preventDefault();
@@ -68,7 +85,8 @@ export default function PartnerLoginPage() {
         </p>
         <h1 className="mt-1 text-xl font-bold text-slate-900">Partner Sign In</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Enter the email on your partner account. We’ll send a one-time code.
+          Enter the email on your partner user account. We’ll send a one-time code.
+          Or open a login link provided by admin.
         </p>
 
         {step === "email" ? (
