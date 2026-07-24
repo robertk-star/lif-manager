@@ -8,16 +8,35 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status")?.trim() ?? "active";
+  const search = searchParams.get("search")?.trim() ?? "";
+  const status = searchParams.get("status")?.trim() ?? "";
+  const leadStatus = searchParams.get("lead_status")?.trim() ?? "";
+  const accepting = searchParams.get("accepting_leads")?.trim() ?? "";
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "200", 10) || 200, 500);
 
   let query = supabaseAdmin
     .from("partner_accounts")
-    .select("id, firm_name, email, status, accepting_leads")
+    .select(
+      "id, firm_name, contact_first_name, contact_last_name, email, phone, " +
+        "states_served, routing_scope, routing_states, routing_excluded_states, " +
+        "monthly_lead_capacity, status, accepting_leads, lead_status, " +
+        "accepted_case_types, accepts_initial_filings, accepts_appeals, accepts_hearings, " +
+        "last_login_at, created_at"
+    )
     .order("firm_name", { ascending: true })
     .limit(limit);
 
   if (status) query = query.eq("status", status);
+  if (leadStatus) query = query.eq("lead_status", leadStatus);
+  if (accepting === "true") query = query.eq("accepting_leads", true);
+  if (accepting === "false") query = query.eq("accepting_leads", false);
+
+  if (search) {
+    query = query.or(
+      `firm_name.ilike.%${search}%,email.ilike.%${search}%,` +
+        `contact_first_name.ilike.%${search}%,contact_last_name.ilike.%${search}%`
+    );
+  }
 
   const { data, error } = await query;
 
