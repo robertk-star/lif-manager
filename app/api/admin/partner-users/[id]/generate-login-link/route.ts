@@ -25,10 +25,19 @@ export async function POST(
     return NextResponse.json({ error: "Partner user not found." }, { status: 404 });
   }
 
+  const typedUser = user as {
+    id: string;
+    partner_account_id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    status: string;
+  };
+
   const { data: account } = await supabaseAdmin
     .from("partner_accounts")
     .select("id, status")
-    .eq("id", (user as { partner_account_id: string }).partner_account_id)
+    .eq("id", typedUser.partner_account_id)
     .single();
 
   if (!account) {
@@ -42,6 +51,13 @@ export async function POST(
     );
   }
 
+  if (typedUser.status !== "active" && typedUser.status !== "pending") {
+    return NextResponse.json(
+      { error: "Activate the partner user before generating a login link." },
+      { status: 422 }
+    );
+  }
+
   const rawTokenBytes = new Uint8Array(32);
   crypto.getRandomValues(rawTokenBytes);
   const rawToken = Buffer.from(rawTokenBytes).toString("base64url");
@@ -49,7 +65,7 @@ export async function POST(
   const expiresAt = new Date(Date.now() + SEVEN_DAYS_MS).toISOString();
 
   const { error: insertError } = await supabaseAdmin.from("partner_login_tokens").insert({
-    partner_account_id: (user as { partner_account_id: string }).partner_account_id,
+    partner_account_id: typedUser.partner_account_id,
     partner_user_id: partnerUserId,
     token_hash: tokenHash,
     expires_at: expiresAt,
@@ -57,21 +73,33 @@ export async function POST(
 
   if (insertError) {
     console.error("[generate-login-link]", insertError);
-    return NextResponse.json({ error: "Failed to generate login link." }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          "Failed to generate login link. Confirm partner_login_tokens table exists in Supabase.",
+      },
+      { status: 500 }
+    );
   }
 
-  const origin = new URL(request.url).origin;
-  const loginUrl = `${origin}/partner/login?token=${rawToken}`;
+  // Prefer public site URL so links are never vercel.app preview hosts
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
+    process.env.LIF_PUBLIC_URL?.replace(/\/$/, "") ||
+    new URL(request.url).origin;
+
+  // Hit the API route directly — sets cookie on the same response as the redirect
+  const loginUrl = `${origin}/api/partner/login?token=${encodeURIComponent(rawToken)}`;
 
   return NextResponse.json({
     success: true,
     loginUrl,
     expiresAt,
     user: {
-      id: (user as { id: string }).id,
-      email: (user as { email: string }).email,
-      first_name: (user as { first_name: string }).first_name,
-      last_name: (user as { last_name: string }).last_name,
+      id: typedUser.id,
+      email: typedUser.email,
+      first_name: typedUser.first_name,
+      last_name: typedUser.last_name,
     },
   });
 }
