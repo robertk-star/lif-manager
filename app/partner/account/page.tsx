@@ -1,11 +1,10 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import {
   getAuthenticatedPartnerSession,
   type PartnerRole,
 } from "@/lib/partnerAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import PartnerLogoutButton from "./LogoutButton";
+import PartnerNav from "../PartnerNav";
 import LeadPreferencesForm, { type LeadPreferences } from "./LeadPreferencesForm";
 import PartnerProfileForm, { type PartnerProfileSettings } from "./PartnerProfileForm";
 
@@ -150,22 +149,7 @@ export default async function PartnerAccountPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-[#0d1b2e]">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-6">
-            <span className="text-sm font-bold text-white">LIF Partner</span>
-            <nav className="hidden items-center gap-4 text-sm sm:flex">
-              <Link href="/partner/account" className="font-semibold text-white">
-                Account
-              </Link>
-              <Link href="/partner/leads" className="text-white/70 hover:text-white">
-                Leads
-              </Link>
-            </nav>
-          </div>
-          <PartnerLogoutButton />
-        </div>
-      </header>
+      <PartnerNav active="/partner/account" />
 
       <main className="mx-auto max-w-5xl space-y-8 px-4 py-10 sm:px-6">
         <div className="flex items-start justify-between gap-4">
@@ -192,16 +176,30 @@ export default async function PartnerAccountPage() {
           )}
         </div>
 
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4">
-          <p className="text-sm text-blue-800">
-            <strong>Lead dashboard is available.</strong> Review leads assigned to your firm.{" "}
-            <a
-              href="/partner/leads"
-              className="ml-1 font-semibold underline underline-offset-2 hover:text-blue-900"
-            >
-              View assigned leads
-            </a>
-          </p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4">
+            <p className="text-sm text-blue-800">
+              <strong>Lead dashboard is available.</strong> Review leads assigned to your firm.{" "}
+              <a
+                href="/partner/leads"
+                className="ml-1 font-semibold underline underline-offset-2 hover:text-blue-900"
+              >
+                View assigned leads
+              </a>
+            </p>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+            <p className="text-sm text-amber-900">
+              <strong>Billing statement preview is available.</strong> Review admin-marked billing
+              status.{" "}
+              <a
+                href="/partner/billing"
+                className="ml-1 font-semibold underline underline-offset-2 hover:text-amber-950"
+              >
+                View billing statement
+              </a>
+            </p>
+          </div>
         </div>
 
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
