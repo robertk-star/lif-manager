@@ -71,6 +71,9 @@ export default async function PartnerLeadsPage() {
           <div className="flex items-center gap-6">
             <span className="text-sm font-bold text-white">LIF Partner</span>
             <nav className="hidden items-center gap-4 text-sm sm:flex">
+              <Link href="/partner/account" className="text-white/70 hover:text-white">
+                Account
+              </Link>
               <Link href="/partner/leads" className="font-semibold text-white">
                 Leads
               </Link>
@@ -95,7 +98,9 @@ export default async function PartnerLeadsPage() {
               <p className="mt-0.5 text-sm font-semibold text-[#0d1b2e]">{displayName}</p>
               <p className="text-xs text-gray-500">{partnerUser.email}</p>
               <div className="mt-1.5 flex sm:justify-end">
-                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${ROLE_COLORS[session.role]}`}>
+                <span
+                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${ROLE_COLORS[session.role]}`}
+                >
                   {ROLE_LABELS[session.role]}
                 </span>
               </div>
@@ -105,7 +110,8 @@ export default async function PartnerLeadsPage() {
 
         {session.role === "viewer" && (
           <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-5 py-4 text-sm text-yellow-800">
-            Your role is Viewer. You can review assigned leads, but you cannot update lead status or partner notes.
+            Your role is Viewer. You can review assigned leads, but you cannot update lead status or
+            partner notes.
           </div>
         )}
 
