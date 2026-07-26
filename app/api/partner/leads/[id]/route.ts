@@ -14,8 +14,10 @@ const VALID_STATUSES = [
 ] as const;
 
 const DETAIL_SELECT =
-  "id, created_at, assigned_at, first_name, last_name, phone, email, city, state, zip, " +
+  "id, created_at, updated_at, source, external_reference_id, " +
+  "first_name, last_name, phone, email, city, state, zip, " +
   "benefit_type, application_status, medical_summary, additional_notes, " +
+  "status, assigned_partner_account_id, assigned_at, " +
   "partner_response_status, partner_response_updated_at, partner_viewed_at, partner_notes";
 
 export async function GET(

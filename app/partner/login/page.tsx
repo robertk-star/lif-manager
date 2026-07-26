@@ -1,226 +1,313 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
-function PartnerLoginForm() {
-  const router = useRouter();
+/**
+ * Partner login — production-style UI with reliable magic-link POST + email code flow.
+ */
+
+const ERROR_MESSAGES: Record<string, string> = {
+  missing:
+    "No login token was provided. Enter your email below and we will send a login code.",
+  invalid:
+    "This login link is invalid. Enter your email below and we will send a login code.",
+  used:
+    "This login link has already been used. Enter your email below and we will send a new login code.",
+  expired:
+    "This login link has expired. Enter your email below and we will send a new login code.",
+  inactive:
+    "Your partner account is not currently active. Please contact your Legal Intake Flow administrator.",
+};
+
+function PartnerLoginInner() {
   const searchParams = useSearchParams();
   const formRef = useRef<HTMLFormElement>(null);
-  const [step, setStep] = useState<"email" | "code" | "token">("email");
+
+  const token = searchParams.get("token");
+  const error = searchParams.get("error");
+  const detail = searchParams.get("detail");
+
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [token, setToken] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
+  const [codeSent, setCodeSent] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [tokenValue, setTokenValue] = useState("");
 
   useEffect(() => {
-    const t = searchParams.get("token");
-    if (t) {
-      setToken(t);
-      setStep("token");
-      setInfo("Signing you in…");
+    if (token) {
+      setTokenValue(token);
       const id = window.setTimeout(() => {
         formRef.current?.submit();
       }, 50);
       return () => window.clearTimeout(id);
     }
+  }, [token]);
 
-    const err = searchParams.get("error");
-    const detail = searchParams.get("detail");
-    if (err === "missing") setError(detail || "Login link is missing a token.");
-    if (err === "invalid")
-      setError(
-        detail
-          ? `Login failed: ${detail}`
-          : "This login link is invalid. Generate a new one from Partners → Manage."
-      );
-    if (err === "used")
-      setError(
-        detail ||
-          "This login link was already used. Generate a new one from Partners → Manage."
-      );
-    if (err === "expired")
-      setError(detail || "This login link has expired. Generate a new one.");
-    if (err === "inactive")
-      setError(
-        detail ||
-          "This partner account or user is not active. Activate them in Partners → Manage."
-      );
-  }, [searchParams]);
+  if (token) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+        <div className="w-full max-w-md text-center space-y-6">
+          <div className="text-center">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Legal Intake Flow</p>
+            <h1 className="mt-1 text-xl font-bold text-[#0d1b2e]">Partner Login</h1>
+          </div>
+          <div className="rounded-xl border border-gray-200 bg-white px-6 py-8 shadow-sm">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-50">
+              <svg className="h-6 w-6 animate-spin text-blue-600" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            </div>
+            <p className="text-sm text-gray-600">Verifying your login link…</p>
+            <form ref={formRef} method="POST" action="/api/partner/login" className="mt-4">
+              <input type="hidden" name="token" value={tokenValue || token} />
+              <button
+                type="submit"
+                className="text-xs font-medium text-blue-600 hover:underline"
+              >
+                Click here if nothing happens
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  async function requestCode(e: React.FormEvent) {
+  async function handleRequestCode(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setInfo(null);
+    setFormError(null);
+    setNotice(null);
+
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setFormError("Please enter a valid email address.");
+      return;
+    }
+
+    setSubmitting(true);
     try {
       const res = await fetch("/api/partner/request-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: trimmedEmail }),
       });
-      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        setError(data.error ?? "Could not send code.");
+        const data = await res.json().catch(() => ({}));
+        setFormError(data.error ?? "Something went wrong. Please try again.");
         return;
       }
-      setInfo("If that email is registered, a 6-digit code was sent. Check your inbox.");
-      setStep("code");
+
+      setEmail(trimmedEmail);
+      setCodeSent(true);
+      setCode("");
+      setNotice(
+        "If your email matches an active partner user, a 6-digit login code has been emailed to you."
+      );
     } catch {
-      setError("Network error.");
+      setFormError("Network error. Please check your connection and try again.");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
-  async function verifyCode(e: React.FormEvent) {
+  async function handleVerifyCode(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
+    setFormError(null);
+    setNotice(null);
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const cleanCode = code.replace(/\D/g, "");
+
+    if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setFormError("Please enter a valid email address.");
+      return;
+    }
+    if (!/^\d{6}$/.test(cleanCode)) {
+      setFormError("Enter the 6-digit code sent to your email.");
+      return;
+    }
+
+    setVerifying(true);
     try {
       const res = await fetch("/api/partner/verify-login-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code }),
+        body: JSON.stringify({ email: trimmedEmail, code: cleanCode }),
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        setError(data.error ?? "Invalid code.");
+        setFormError(data.error ?? "Invalid or expired code.");
         return;
       }
+
       window.location.href = data.redirectTo ?? "/partner/leads";
     } catch {
-      setError("Network error.");
+      setFormError("Network error. Please check your connection and try again.");
     } finally {
-      setLoading(false);
+      setVerifying(false);
     }
   }
 
+  const errorMessage = error
+    ? detail
+      ? `${ERROR_MESSAGES[error] ?? "This login link is invalid or expired."} (${detail})`
+      : ERROR_MESSAGES[error] ??
+        "This login link is invalid or expired. Enter your email below and we will send a login code."
+    : null;
+
   return (
-    <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-        LIF Manager
-      </p>
-      <h1 className="mt-1 text-xl font-bold text-slate-900">Partner Sign In</h1>
-      <p className="mt-2 text-sm text-slate-500">
-        Use a one-time login link from admin, or enter your partner user email for a
-        code.
-      </p>
-
-      <form
-        ref={formRef}
-        method="POST"
-        action="/api/partner/login"
-        className="hidden"
-        aria-hidden
-      >
-        <input type="hidden" name="token" value={token} />
-      </form>
-
-      {step === "token" && (
-        <div className="mt-6 space-y-3">
-          {info && <p className="text-sm text-slate-600">{info}</p>}
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <p className="text-xs text-slate-400">
-            If nothing happens, click the button below.
-          </p>
-          <button
-            type="button"
-            onClick={() => formRef.current?.submit()}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white"
-          >
-            Continue to sign in
-          </button>
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+      <div className="w-full max-w-md space-y-6">
+        <div className="text-center">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Legal Intake Flow</p>
+          <h1 className="mt-1 text-xl font-bold text-[#0d1b2e]">Partner Login</h1>
         </div>
-      )}
 
-      {step === "email" && (
-        <form onSubmit={requestCode} className="mt-6 space-y-4">
-          <div>
-            <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="you@firm.com"
-            />
+        {errorMessage && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+            <p className="text-sm text-amber-800">{errorMessage}</p>
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading || !email}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            {loading ? "Sending…" : "Send Login Code"}
-          </button>
-        </form>
-      )}
+        )}
 
-      {step === "code" && (
-        <form onSubmit={verifyCode} className="mt-6 space-y-4">
-          {info && <p className="text-sm text-slate-600">{info}</p>}
-          <div>
-            <label htmlFor="code" className="mb-1 block text-sm font-medium text-slate-700">
-              6-digit code
-            </label>
-            <input
-              id="code"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={6}
-              required
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-lg tracking-widest"
-              placeholder="000000"
-            />
-          </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading || code.length !== 6}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            {loading ? "Verifying…" : "Sign In"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setStep("email");
-              setCode("");
-              setError(null);
-              setInfo(null);
-            }}
-            className="w-full text-sm text-slate-500 hover:text-slate-800"
-          >
-            Use a different email
-          </button>
-        </form>
-      )}
+        <div className="rounded-xl border border-gray-200 bg-white px-6 py-8 shadow-sm">
+          <h2 className="text-lg font-bold text-[#0d1b2e]">Sign in to your partner account</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Enter your email address. We will email a 6-digit code that you can enter here to access your account.
+          </p>
+
+          {!codeSent ? (
+            <form onSubmit={handleRequestCode} className="mt-6 space-y-4" noValidate>
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                  Email Address
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={submitting}
+                  placeholder="you@yourfirm.com"
+                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                />
+              </div>
+
+              {formError && <p className="text-sm text-red-600">{formError}</p>}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full rounded-lg bg-[#1a3a5c] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#0d1b2e] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? "Sending code…" : "Email Login Code"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleVerifyCode} className="mt-6 space-y-4" noValidate>
+              {notice && (
+                <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                  {notice}
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="email-code" className="block text-sm font-medium text-gray-700">
+                  Email Address
+                </label>
+                <input
+                  id="email-code"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={verifying}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="code" className="block text-sm font-medium text-gray-700">
+                  6-Digit Login Code
+                </label>
+                <input
+                  id="code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={code}
+                  maxLength={6}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  disabled={verifying}
+                  placeholder="123456"
+                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-3 text-center text-2xl font-semibold tracking-[0.35em] shadow-sm placeholder:text-gray-300 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                />
+                <p className="mt-2 text-xs text-gray-500">Codes expire after 10 minutes.</p>
+              </div>
+
+              {formError && <p className="text-sm text-red-600">{formError}</p>}
+
+              <button
+                type="submit"
+                disabled={verifying}
+                className="w-full rounded-lg bg-[#1a3a5c] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#0d1b2e] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {verifying ? "Verifying…" : "Verify Code & Log In"}
+              </button>
+
+              <button
+                type="button"
+                disabled={submitting || verifying}
+                onClick={(e) => handleRequestCode(e as unknown as React.FormEvent)}
+                className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? "Sending…" : "Send New Code"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCodeSent(false);
+                  setCode("");
+                  setFormError(null);
+                  setNotice(null);
+                }}
+                className="w-full text-sm font-medium text-blue-600 hover:underline"
+              >
+                Use a different email address
+              </button>
+            </form>
+          )}
+        </div>
+
+        <p className="text-center text-xs text-gray-400">
+          Need help?{" "}
+          <a href="mailto:support@legalintakeflow.com" className="text-blue-600 hover:underline">
+            Contact support
+          </a>
+        </p>
+      </div>
     </div>
   );
 }
 
 export default function PartnerLoginPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <Suspense
-        fallback={
-          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">
-            Loading…
-          </div>
-        }
-      >
-        <PartnerLoginForm />
-      </Suspense>
-    </main>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-400">
+          Loading…
+        </div>
+      }
+    >
+      <PartnerLoginInner />
+    </Suspense>
   );
 }
