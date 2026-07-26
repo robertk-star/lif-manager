@@ -8,15 +8,16 @@ import {
   type PartnerRole,
 } from "@/lib/partnerAuth";
 
+// 303 See Other — after POST, browser must follow with GET (avoids HTTP 405)
 function errorRedirect(request: NextRequest, code: string, detail?: string) {
   const url = new URL("/partner/login", request.url);
   url.searchParams.set("error", code);
   if (detail) url.searchParams.set("detail", detail.slice(0, 160));
-  return NextResponse.redirect(url);
+  return NextResponse.redirect(url, 303);
 }
 
 function successRedirect(request: NextRequest, sessionToken: string) {
-  const response = NextResponse.redirect(new URL("/partner/leads", request.url));
+  const response = NextResponse.redirect(new URL("/partner/leads", request.url), 303);
   response.cookies.set({
     name: PARTNER_COOKIE_NAME,
     value: sessionToken,
