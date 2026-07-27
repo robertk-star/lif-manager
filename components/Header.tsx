@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -18,12 +19,20 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-sm">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+        {/* Logo */}
         <Link href="/" className="flex-shrink-0" aria-label="Legal Intake Flow — Home">
-          <span className="text-base font-bold tracking-tight text-[#0d1b2e] sm:text-lg">
-            Legal Intake Flow
-          </span>
+          <Image
+            src="/images/lif-name-logo.png"
+            alt="Legal Intake Flow"
+            width={320}
+            height={60}
+            className="h-8 w-auto max-w-[200px] object-contain sm:h-11 sm:max-w-[280px]"
+            priority
+            draggable={false}
+          />
         </Link>
 
+        {/* Desktop nav */}
         <nav className="hidden items-center gap-8 md:flex" aria-label="Main navigation">
           {NAV_LINKS.map(({ href, label }) => (
             <Link
@@ -38,18 +47,19 @@ export function Header() {
           ))}
           <Link
             href="/partner/login"
-            className="rounded-md border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
+            className="rounded-md border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           >
             Login
           </Link>
           <Link
             href="/request-access"
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           >
             Request Access
           </Link>
         </nav>
 
+        {/* Mobile menu toggle */}
         <button
           className="flex items-center justify-center rounded-md p-2 text-gray-700 hover:bg-gray-100 md:hidden"
           onClick={() => setMobileOpen((o) => !o)}
@@ -68,6 +78,7 @@ export function Header() {
         </button>
       </div>
 
+      {/* Mobile nav drawer */}
       {mobileOpen && (
         <div className="border-t border-gray-200 bg-white px-4 pb-4 pt-2 md:hidden">
           <nav className="flex flex-col gap-3" aria-label="Mobile navigation">
@@ -75,7 +86,7 @@ export function Header() {
               <Link
                 key={href}
                 href={href}
-                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-gray-50 hover:text-blue-600 ${
+                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-50 hover:text-blue-600 ${
                   pathname === href ? "text-blue-600" : "text-gray-700"
                 }`}
                 onClick={() => setMobileOpen(false)}
@@ -85,14 +96,14 @@ export function Header() {
             ))}
             <Link
               href="/partner/login"
-              className="mt-1 rounded-md border border-blue-200 px-4 py-2 text-center text-sm font-semibold text-blue-700 hover:bg-blue-50"
+              className="mt-1 rounded-md border border-blue-200 px-4 py-2 text-center text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50"
               onClick={() => setMobileOpen(false)}
             >
               Login
             </Link>
             <Link
               href="/request-access"
-              className="rounded-md bg-blue-600 px-4 py-2 text-center text-sm font-semibold text-white hover:bg-blue-700"
+              className="rounded-md bg-blue-600 px-4 py-2 text-center text-sm font-semibold text-white transition-colors hover:bg-blue-700"
               onClick={() => setMobileOpen(false)}
             >
               Request Access
