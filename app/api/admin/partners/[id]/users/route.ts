@@ -27,14 +27,33 @@ export async function GET(
   const { data, error } = await supabaseAdmin
     .from("partner_users")
     .select(
-      "id, created_at, email, first_name, last_name, role, status, last_login_at, invited_at, accepted_at"
+      "id, created_at, email, first_name, last_name, role, status, last_login_at, invited_at, accepted_at, receives_invoice_emails"
     )
     .eq("partner_account_id", partnerAccountId)
     .order("created_at", { ascending: true });
 
   if (error) {
-    console.error("[GET /api/admin/partners/id/users]", error);
-    return NextResponse.json({ error: "Failed to fetch users." }, { status: 500 });
+    // Column may not exist yet — fall back without it
+    console.warn("[GET /api/admin/partners/id/users] retry without receives_invoice_emails:", error.message);
+    const fallback = await supabaseAdmin
+      .from("partner_users")
+      .select(
+        "id, created_at, email, first_name, last_name, role, status, last_login_at, invited_at, accepted_at"
+      )
+      .eq("partner_account_id", partnerAccountId)
+      .order("created_at", { ascending: true });
+
+    if (fallback.error) {
+      console.error("[GET /api/admin/partners/id/users]", fallback.error);
+      return NextResponse.json({ error: "Failed to fetch users." }, { status: 500 });
+    }
+
+    const rows = (fallback.data ?? []).map((u) => ({
+      ...u,
+      receives_invoice_emails:
+        (u as { role?: string }).role === "owner" || (u as { role?: string }).role === "admin",
+    }));
+    return NextResponse.json({ success: true, data: rows });
   }
 
   return NextResponse.json({ success: true, data: data ?? [] });
@@ -72,6 +91,10 @@ export async function POST(
   const email = String(body.email ?? "").trim().toLowerCase();
   const role = String(body.role ?? "owner").trim();
   const status = String(body.status ?? "active").trim();
+  const receivesInvoiceEmails =
+    typeof body.receives_invoice_emails === "boolean"
+      ? body.receives_invoice_emails
+      : role === "owner" || role === "admin";
 
   if (!firstName || !lastName) {
     return NextResponse.json({ error: "First and last name are required." }, { status: 422 });
@@ -88,22 +111,40 @@ export async function POST(
 
   const now = new Date().toISOString();
 
-  const { data, error } = await supabaseAdmin
+  const insertPayload: Record<string, unknown> = {
+    partner_account_id: partnerAccountId,
+    email,
+    first_name: firstName,
+    last_name: lastName,
+    role,
+    status: status === "pending" ? "pending" : "active",
+    invited_at: now,
+    accepted_at: status === "pending" ? null : now,
+    receives_invoice_emails: receivesInvoiceEmails,
+  };
+
+  let { data, error } = await supabaseAdmin
     .from("partner_users")
-    .insert({
-      partner_account_id: partnerAccountId,
-      email,
-      first_name: firstName,
-      last_name: lastName,
-      role,
-      status: status === "pending" ? "pending" : "active",
-      invited_at: now,
-      accepted_at: status === "pending" ? null : now,
-    })
+    .insert(insertPayload)
     .select(
-      "id, created_at, email, first_name, last_name, role, status, last_login_at, invited_at, accepted_at"
+      "id, created_at, email, first_name, last_name, role, status, last_login_at, invited_at, accepted_at, receives_invoice_emails"
     )
     .single();
+
+  if (error && /receives_invoice_emails/i.test(error.message ?? "")) {
+    delete insertPayload.receives_invoice_emails;
+    const retry = await supabaseAdmin
+      .from("partner_users")
+      .insert(insertPayload)
+      .select(
+        "id, created_at, email, first_name, last_name, role, status, last_login_at, invited_at, accepted_at"
+      )
+      .single();
+    data = retry.data
+      ? ({ ...retry.data, receives_invoice_emails: receivesInvoiceEmails } as typeof data)
+      : null;
+    error = retry.error;
+  }
 
   if (error) {
     console.error("[POST /api/admin/partners/id/users]", error);

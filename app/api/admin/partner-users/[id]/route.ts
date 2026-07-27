@@ -38,19 +38,34 @@ export async function PATCH(
     }
     updates.status = body.status;
   }
+  if (typeof body.receives_invoice_emails === "boolean") {
+    updates.receives_invoice_emails = body.receives_invoice_emails;
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No updates provided." }, { status: 400 });
   }
 
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from("partner_users")
     .update(updates)
     .eq("id", id)
     .select(
-      "id, created_at, email, first_name, last_name, role, status, last_login_at, invited_at, accepted_at"
+      "id, created_at, email, first_name, last_name, role, status, last_login_at, invited_at, accepted_at, receives_invoice_emails"
     )
     .single();
+
+  if (error && updates.receives_invoice_emails !== undefined) {
+    // Column not migrated yet
+    console.error("[PATCH /api/admin/partner-users/id] receives_invoice_emails column missing?", error);
+    return NextResponse.json(
+      {
+        error:
+          "Invoice email preference is not available yet. Run sql/partner_users_receives_invoice_emails.sql in Supabase, then try again.",
+      },
+      { status: 500 }
+    );
+  }
 
   if (error || !data) {
     console.error("[PATCH /api/admin/partner-users/id]", error);
