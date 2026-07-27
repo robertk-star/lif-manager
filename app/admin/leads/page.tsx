@@ -12,6 +12,8 @@ type LeadStatus =
   | "rejected"
   | "spam";
 
+type BillableStatus = "not_billable" | "billable" | "invoiced" | "paid" | "waived";
+
 interface LeadRow {
   id: string;
   created_at: string;
@@ -33,6 +35,8 @@ interface LeadRow {
   assigned_partner_name: string | null;
   assigned_at: string | null;
   partner_response_status: string | null;
+  billable_status: string | null;
+  billing_amount_cents: number | null;
 }
 
 interface LeadDetail extends LeadRow {
@@ -64,6 +68,15 @@ const STATUS_OPTIONS: LeadStatus[] = [
   "spam",
 ];
 
+const BILLABLE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "", label: "— Not set —" },
+  { value: "not_billable", label: "Not billable" },
+  { value: "billable", label: "Billable" },
+  { value: "invoiced", label: "Invoiced" },
+  { value: "paid", label: "Paid" },
+  { value: "waived", label: "Waived" },
+];
+
 const STATUS_COLORS: Record<LeadStatus, string> = {
   new: "bg-blue-100 text-blue-800",
   reviewing: "bg-yellow-100 text-yellow-800",
@@ -72,6 +85,14 @@ const STATUS_COLORS: Record<LeadStatus, string> = {
   closed: "bg-slate-100 text-slate-600",
   rejected: "bg-orange-100 text-orange-700",
   spam: "bg-red-100 text-red-700",
+};
+
+const BILLABLE_COLORS: Record<string, string> = {
+  not_billable: "bg-slate-100 text-slate-600",
+  billable: "bg-emerald-100 text-emerald-800",
+  invoiced: "bg-blue-100 text-blue-800",
+  paid: "bg-green-100 text-green-800",
+  waived: "bg-amber-100 text-amber-800",
 };
 
 function formatDate(iso: string | null) {
@@ -97,6 +118,11 @@ function formatDateTime(iso: string | null) {
 function nameOf(lead: { first_name: string | null; last_name: string | null }) {
   const n = `${lead.first_name ?? ""} ${lead.last_name ?? ""}`.trim();
   return n || null;
+}
+
+function currency(cents: number | null | undefined) {
+  if (cents == null) return null;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
@@ -127,6 +153,8 @@ function LeadDetailModal({
   const [status, setStatus] = useState<LeadStatus>("new");
   const [notes, setNotes] = useState("");
   const [assignedId, setAssignedId] = useState("");
+  const [billableStatus, setBillableStatus] = useState("");
+  const [billingAmountDollars, setBillingAmountDollars] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState(false);
@@ -149,6 +177,10 @@ function LeadDetailModal({
         setStatus(full.status);
         setNotes(full.internal_review_notes ?? "");
         setAssignedId(full.assigned_partner_account_id ?? "");
+        setBillableStatus(full.billable_status ?? "");
+        setBillingAmountDollars(
+          full.billing_amount_cents != null ? (full.billing_amount_cents / 100).toFixed(2) : ""
+        );
       })
       .catch(() => {
         if (!cancelled) setError("Network error.");
@@ -168,6 +200,18 @@ function LeadDetailModal({
     setSaveError(null);
     setSaveOk(false);
 
+    let billing_amount_cents: number | null = null;
+    const amountTrim = billingAmountDollars.trim();
+    if (amountTrim !== "") {
+      const dollars = Number(amountTrim);
+      if (!Number.isFinite(dollars) || dollars < 0) {
+        setSaveError("Billing amount must be a valid non-negative dollar amount.");
+        setSaving(false);
+        return;
+      }
+      billing_amount_cents = Math.round(dollars * 100);
+    }
+
     try {
       const res = await fetch(`/api/admin/leads/${lead.id}`, {
         method: "PATCH",
@@ -176,6 +220,8 @@ function LeadDetailModal({
           status,
           internal_review_notes: notes,
           assigned_partner_account_id: assignedId || null,
+          billable_status: billableStatus || null,
+          billing_amount_cents,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -315,7 +361,7 @@ function LeadDetailModal({
                   <select
                     value={assignedId}
                     onChange={(e) => setAssignedId(e.target.value)}
-                    className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+                    className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">— Unassigned —</option>
                     {partners
@@ -326,6 +372,43 @@ function LeadDetailModal({
                         </option>
                       ))}
                   </select>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Billable Status
+                    </label>
+                    <select
+                      value={billableStatus}
+                      onChange={(e) => setBillableStatus(e.target.value)}
+                      className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                    >
+                      {BILLABLE_OPTIONS.map((opt) => (
+                        <option key={opt.value || "empty"} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Set to <strong>Billable</strong> to include on invoice drafts.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Billing Amount (USD)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="e.g. 150.00"
+                      value={billingAmountDollars}
+                      onChange={(e) => setBillingAmountDollars(e.target.value)}
+                      className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                    />
+                    <p className="mt-1 text-xs text-slate-400">Leave blank to clear amount.</p>
+                  </div>
                 </div>
 
                 <div>
@@ -372,6 +455,7 @@ export default function AdminLeadsPage() {
   const [stateFilter, setStateFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [assignedFilter, setAssignedFilter] = useState("");
+  const [billableFilter, setBillableFilter] = useState("");
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
@@ -381,6 +465,7 @@ export default function AdminLeadsPage() {
     if (stateFilter) params.set("state", stateFilter);
     if (statusFilter) params.set("status", statusFilter);
     if (assignedFilter) params.set("assigned", assignedFilter);
+    if (billableFilter) params.set("billable_status", billableFilter);
 
     try {
       const res = await fetch(`/api/admin/leads?${params.toString()}`);
@@ -399,7 +484,7 @@ export default function AdminLeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, stateFilter, statusFilter, assignedFilter, router]);
+  }, [search, stateFilter, statusFilter, assignedFilter, billableFilter, router]);
 
   useEffect(() => {
     fetchLeads();
@@ -457,12 +542,12 @@ export default function AdminLeadsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Lead Queue</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Leads from DBS. Auto-routed on ingest; you can reassign manually here.
+            Leads from DBS. Mark billable and set amounts before creating invoices.
           </p>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <input
               type="text"
               placeholder="Search name, email, phone, ref…"
@@ -499,6 +584,18 @@ export default function AdminLeadsPage() {
               <option value="false">Unassigned</option>
               <option value="true">Assigned</option>
             </select>
+            <select
+              value={billableFilter}
+              onChange={(e) => setBillableFilter(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">All Billable</option>
+              {BILLABLE_OPTIONS.filter((o) => o.value).map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -525,8 +622,9 @@ export default function AdminLeadsPage() {
                     <th className="px-4 py-3 text-left">Received</th>
                     <th className="px-4 py-3 text-left">Name</th>
                     <th className="px-4 py-3 text-left">State</th>
-                    <th className="px-4 py-3 text-left">Benefit</th>
                     <th className="px-4 py-3 text-left">Status</th>
+                    <th className="px-4 py-3 text-left">Billable</th>
+                    <th className="px-4 py-3 text-right">Amount</th>
                     <th className="px-4 py-3 text-left">Partner</th>
                     <th className="px-4 py-3 text-left">Actions</th>
                   </tr>
@@ -541,7 +639,6 @@ export default function AdminLeadsPage() {
                         {nameOf(lead) ?? <span className="italic text-slate-400">—</span>}
                       </td>
                       <td className="px-4 py-3 text-slate-600">{lead.state ?? "—"}</td>
-                      <td className="px-4 py-3 text-slate-600">{lead.benefit_type ?? "—"}</td>
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${
@@ -550,6 +647,25 @@ export default function AdminLeadsPage() {
                         >
                           {lead.status.replace(/_/g, " ")}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {lead.billable_status ? (
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${
+                              BILLABLE_COLORS[lead.billable_status] ??
+                              "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {lead.billable_status.replace(/_/g, " ")}
+                          </span>
+                        ) : (
+                          <span className="text-xs italic text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {currency(lead.billing_amount_cents) ?? (
+                          <span className="italic text-slate-400">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-600">
                         {lead.assigned_partner_name ?? (
