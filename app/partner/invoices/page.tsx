@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAuthenticatedPartnerSession, type PartnerRole } from "@/lib/partnerAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -64,7 +65,7 @@ export default async function PartnerInvoicesPage() {
           <div>
             <h1 className="text-2xl font-bold text-[#0d1b2e]">Invoices</h1>
             <p className="mt-1 text-sm text-gray-500">
-              View invoice records and payment tracking details for {partnerAccount.firm_name}.
+              View, download, and pay invoices for {partnerAccount.firm_name}.
             </p>
           </div>
           {partnerUser && (
@@ -82,7 +83,9 @@ export default async function PartnerInvoicesPage() {
             </div>
           )}
         </div>
-        <PartnerInvoicesDashboard />
+        <Suspense fallback={<p className="text-sm text-gray-400">Loading invoices…</p>}>
+          <PartnerInvoicesDashboard />
+        </Suspense>
       </main>
     </div>
   );
