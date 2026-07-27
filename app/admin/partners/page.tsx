@@ -40,6 +40,7 @@ interface PartnerUser {
   status: string;
   last_login_at: string | null;
   invited_at: string | null;
+  receives_invoice_emails?: boolean;
 }
 
 const ACCOUNT_STATUS_OPTIONS: AccountStatus[] = [
@@ -86,8 +87,10 @@ function PartnerUsersSection({ partnerAccountId }: { partnerAccountId: string })
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRole>("owner");
+  const [receivesInvoiceEmails, setReceivesInvoiceEmails] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [toggleBusy, setToggleBusy] = useState<string | null>(null);
   const [linkByUser, setLinkByUser] = useState<
     Record<string, { url: string; expiry: string }>
   >({});
@@ -130,6 +133,7 @@ function PartnerUsersSection({ partnerAccountId }: { partnerAccountId: string })
           email,
           role,
           status: "active",
+          receives_invoice_emails: receivesInvoiceEmails,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -143,6 +147,7 @@ function PartnerUsersSection({ partnerAccountId }: { partnerAccountId: string })
       setLastName("");
       setEmail("");
       setRole("owner");
+      setReceivesInvoiceEmails(true);
     } finally {
       setSaving(false);
     }
@@ -157,6 +162,28 @@ function PartnerUsersSection({ partnerAccountId }: { partnerAccountId: string })
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.data) {
       setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...data.data } : u)));
+    }
+  }
+
+  async function setInvoiceEmailPref(userId: string, enabled: boolean) {
+    setToggleBusy(userId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/partner-users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ receives_invoice_emails: enabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to update invoice email preference.");
+        return;
+      }
+      if (data.data) {
+        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...data.data } : u)));
+      }
+    } finally {
+      setToggleBusy(null);
     }
   }
 
@@ -207,12 +234,16 @@ function PartnerUsersSection({ partnerAccountId }: { partnerAccountId: string })
       </div>
 
       <p className="text-xs text-slate-500">
-        Partners sign in with the email on a user below (code emailed) or via a one-time
-        link you generate.
+        Partners sign in with the email on a user below (code emailed) or via a one-time link you
+        generate. Use <strong>Invoice emails</strong> to choose who gets a copy when you mark an
+        invoice Sent.
       </p>
 
       {showForm && (
-        <form onSubmit={handleAddUser} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <form
+          onSubmit={handleAddUser}
+          className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3"
+        >
           <div className="grid grid-cols-2 gap-2">
             <input
               required
@@ -239,7 +270,11 @@ function PartnerUsersSection({ partnerAccountId }: { partnerAccountId: string })
           />
           <select
             value={role}
-            onChange={(e) => setRole(e.target.value as UserRole)}
+            onChange={(e) => {
+              const next = e.target.value as UserRole;
+              setRole(next);
+              setReceivesInvoiceEmails(next === "owner" || next === "admin");
+            }}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           >
             {ROLE_OPTIONS.map((r) => (
@@ -248,6 +283,14 @@ function PartnerUsersSection({ partnerAccountId }: { partnerAccountId: string })
               </option>
             ))}
           </select>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={receivesInvoiceEmails}
+              onChange={(e) => setReceivesInvoiceEmails(e.target.checked)}
+            />
+            Receive invoice emails
+          </label>
           {formError && <p className="text-xs text-red-600">{formError}</p>}
           <div className="flex gap-2">
             <button
@@ -288,6 +331,18 @@ function PartnerUsersSection({ partnerAccountId }: { partnerAccountId: string })
                 <p className="mt-1 text-xs capitalize text-slate-500">
                   {user.role} · {user.status} · last login {formatDate(user.last_login_at)}
                 </p>
+                <label className="mt-2 flex items-center gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    disabled={toggleBusy === user.id || user.status !== "active"}
+                    checked={Boolean(user.receives_invoice_emails)}
+                    onChange={(e) => setInvoiceEmailPref(user.id, e.target.checked)}
+                  />
+                  <span className="font-medium">Invoice emails</span>
+                  {toggleBusy === user.id && (
+                    <span className="text-slate-400">Saving…</span>
+                  )}
+                </label>
               </div>
               <div className="flex flex-wrap gap-2">
                 {user.status !== "active" && (
@@ -322,8 +377,8 @@ function PartnerUsersSection({ partnerAccountId }: { partnerAccountId: string })
             {linkByUser[user.id] && (
               <div className="mt-2 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-2">
                 <p className="text-xs font-semibold text-amber-800">
-                  One-time link — expires {formatDate(linkByUser[user.id].expiry)}. Send to
-                  partner once.
+                  One-time link — expires {formatDate(linkByUser[user.id].expiry)}. Send to partner
+                  once.
                 </p>
                 <div className="flex gap-2">
                   <input
@@ -744,7 +799,7 @@ export default function AdminPartnersPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Partners</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Manage firms, routing, and who can log in as a partner user.
+            Manage firms, routing, login users, and who receives invoice emails.
           </p>
         </div>
 
