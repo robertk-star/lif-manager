@@ -14,9 +14,11 @@ type SendTransactionalEmailInput = {
   subject: string;
   text: string;
   html: string;
+  notificationType?: string;
   leadId?: string | null;
   partnerAccountId?: string | null;
   partnerUserId?: string | null;
+  loginRequestId?: string | null;
   metadata?: Record<string, unknown> | null;
 };
 
@@ -70,7 +72,7 @@ async function insertNotification(input: SendTransactionalEmailInput, status = "
   const { data, error } = await supabaseAdmin
     .from("email_notifications")
     .insert({
-      notification_type: "lead_assigned",
+      notification_type: input.notificationType ?? "lead_assigned",
       recipient_email: input.to.toLowerCase(),
       recipient_name: input.recipientName ?? null,
       subject: input.subject,
@@ -79,6 +81,7 @@ async function insertNotification(input: SendTransactionalEmailInput, status = "
       lead_id: input.leadId ?? null,
       partner_account_id: input.partnerAccountId ?? null,
       partner_user_id: input.partnerUserId ?? null,
+      login_request_id: input.loginRequestId ?? null,
       metadata: input.metadata ?? null,
     })
     .select("id")
@@ -110,7 +113,9 @@ export async function sendTransactionalEmail(
   const replyTo = process.env.LIF_EMAIL_REPLY_TO;
 
   if (!apiKey || !from) {
-    const error = "Email provider is not configured. Set RESEND_API_KEY and LIF_EMAIL_FROM.";
+    const error =
+      "Email provider is not configured. Set RESEND_API_KEY and LIF_EMAIL_FROM on the Vercel project and redeploy.";
+    console.error("[emailNotifications]", error);
     await updateNotification(notificationId, { status: "skipped", error_message: error });
     return { sent: false, skipped: true, notificationId, error };
   }
@@ -139,6 +144,7 @@ export async function sendTransactionalEmail(
     if (!res.ok) {
       const error =
         typeof data?.message === "string" ? data.message : `Resend returned HTTP ${res.status}.`;
+      console.error("[emailNotifications] Resend error:", error);
       await updateNotification(notificationId, { status: "failed", error_message: error });
       return { sent: false, skipped: false, notificationId, error };
     }
@@ -154,6 +160,7 @@ export async function sendTransactionalEmail(
     return { sent: true, skipped: false, notificationId, providerMessageId };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown email delivery error.";
+    console.error("[emailNotifications] send exception:", message);
     await updateNotification(notificationId, { status: "failed", error_message: message });
     return { sent: false, skipped: false, notificationId, error: message };
   }
@@ -284,6 +291,7 @@ export async function sendLeadAssignedNotifications(input: {
       subject,
       text,
       html,
+      notificationType: "lead_assigned",
       leadId: input.leadId,
       partnerAccountId: input.partnerAccountId,
       partnerUserId: user.id,

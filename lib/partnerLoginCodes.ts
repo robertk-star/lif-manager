@@ -102,8 +102,10 @@ export async function sendPartnerLoginCodeEmail(input: {
     subject,
     text,
     html,
+    notificationType: "partner_login_link",
     partnerAccountId: input.partnerAccountId,
     partnerUserId: input.partnerUserId,
+    loginRequestId: input.loginRequestId ?? null,
     metadata: {
       login_method: "email_code",
       expires_at: input.expiresAt,
