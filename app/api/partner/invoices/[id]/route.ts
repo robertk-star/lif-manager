@@ -10,6 +10,42 @@ Frisco, TX 75034
 
 Please include the invoice number in the check memo.`;
 
+type PartnerInvoiceRow = {
+  id: string;
+  created_at: string;
+  updated_at: string | null;
+  invoice_number: string;
+  status: string;
+  period_start: string;
+  period_end: string;
+  subtotal_cents: number | null;
+  total_cents: number;
+  amount_paid_cents: number;
+  balance_due_cents: number;
+  notes: string | null;
+  sent_at: string | null;
+  paid_at: string | null;
+  due_date: string | null;
+  reminder_sent_at: string | null;
+  reminder_count: number | null;
+  overdue_marked_at: string | null;
+  finalized_at: string | null;
+  payment_instructions: string | null;
+  payment_method: string | null;
+  payment_reference: string | null;
+  payment_received_at: string | null;
+  stripe_checkout_session_id: string | null;
+  stripe_payment_intent_id: string | null;
+  stripe_charge_id: string | null;
+  stripe_receipt_url: string | null;
+  stripe_payment_method_type: string | null;
+  stripe_card_last4: string | null;
+  stripe_payment_status: string | null;
+  stripe_paid_at: string | null;
+  stripe_customer_email: string | null;
+  stripe_last_event_at: string | null;
+};
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -21,7 +57,7 @@ export async function GET(
 
   const { id } = await params;
 
-  const { data: invoice, error: invoiceError } = await supabaseAdmin
+  const { data: invoiceData, error: invoiceError } = await supabaseAdmin
     .from("partner_billing_invoices")
     .select(
       "id, created_at, updated_at, invoice_number, status, period_start, period_end, " +
@@ -35,9 +71,11 @@ export async function GET(
     .eq("partner_account_id", session.partnerAccountId)
     .single();
 
-  if (invoiceError || !invoice) {
+  if (invoiceError || !invoiceData) {
     return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
   }
+
+  const invoice = invoiceData as unknown as PartnerInvoiceRow;
 
   if (invoice.status === "draft" || invoice.status === "void") {
     return NextResponse.json(

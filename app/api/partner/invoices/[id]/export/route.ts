@@ -10,6 +10,26 @@ Frisco, TX 75034
 
 Please include the invoice number in the check memo.`;
 
+type PartnerInvoiceRow = {
+  invoice_number: string;
+  status: string;
+  period_start: string;
+  period_end: string;
+  due_date: string | null;
+  finalized_at: string | null;
+  payment_method: string | null;
+  payment_reference: string | null;
+  payment_received_at: string | null;
+  stripe_payment_status: string | null;
+  stripe_checkout_session_id: string | null;
+  stripe_payment_intent_id: string | null;
+  stripe_paid_at: string | null;
+  payment_instructions: string | null;
+  total_cents: number;
+  amount_paid_cents: number;
+  balance_due_cents: number;
+};
+
 function csvEscape(value: unknown) {
   const text = value == null ? "" : String(value);
   return `"${text.replace(/"/g, '""')}"`;
@@ -29,16 +49,18 @@ export async function GET(
   }
 
   const { id } = await params;
-  const { data: invoice, error: invoiceError } = await supabaseAdmin
+  const { data: invoiceData, error: invoiceError } = await supabaseAdmin
     .from("partner_billing_invoices")
     .select("*")
     .eq("id", id)
     .eq("partner_account_id", session.partnerAccountId)
     .single();
 
-  if (invoiceError || !invoice) {
+  if (invoiceError || !invoiceData) {
     return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
   }
+
+  const invoice = invoiceData as unknown as PartnerInvoiceRow;
 
   if (invoice.status === "draft" || invoice.status === "void") {
     return NextResponse.json(

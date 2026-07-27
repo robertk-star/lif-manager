@@ -19,6 +19,33 @@ interface PartnerUserHeader {
   role: PartnerRole;
 }
 
+type PartnerInvoiceRow = {
+  id: string;
+  created_at: string;
+  invoice_number: string;
+  status: string;
+  period_start: string;
+  period_end: string;
+  subtotal_cents: number | null;
+  total_cents: number;
+  amount_paid_cents: number;
+  balance_due_cents: number;
+  notes: string | null;
+  sent_at: string | null;
+  paid_at: string | null;
+  due_date: string | null;
+  finalized_at: string | null;
+  payment_instructions: string | null;
+  payment_method: string | null;
+  payment_reference: string | null;
+  payment_received_at: string | null;
+  stripe_receipt_url: string | null;
+  stripe_payment_status: string | null;
+  stripe_card_last4: string | null;
+  stripe_payment_method_type: string | null;
+  stripe_paid_at: string | null;
+};
+
 const ROLE_LABELS: Record<PartnerRole, string> = {
   owner: "Owner",
   admin: "Admin",
@@ -59,7 +86,7 @@ export default async function PartnerInvoiceDetailPage({
 
   if (accountError || !account) redirect("/partner/login");
 
-  const { data: invoice, error: invoiceError } = await supabaseAdmin
+  const { data: invoiceData, error: invoiceError } = await supabaseAdmin
     .from("partner_billing_invoices")
     .select(
       "id, created_at, invoice_number, status, period_start, period_end, subtotal_cents, total_cents, " +
@@ -71,7 +98,10 @@ export default async function PartnerInvoiceDetailPage({
     .eq("partner_account_id", session.partnerAccountId)
     .single();
 
-  if (invoiceError || !invoice) notFound();
+  if (invoiceError || !invoiceData) notFound();
+
+  const invoice = invoiceData as unknown as PartnerInvoiceRow;
+
   if (invoice.status === "draft" || invoice.status === "void") notFound();
 
   const [{ data: items }, { data: user }] = await Promise.all([
