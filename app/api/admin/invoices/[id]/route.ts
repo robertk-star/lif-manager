@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
 import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { sendInvoiceSentNotifications } from "@/lib/emailNotifications";
 
 const INVOICE_STATUSES = ["draft", "sent", "partially_paid", "paid", "void"] as const;
+
+function appOrigin(request: Request) {
+  const fromEnv = process.env.LIF_APP_URL?.replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+  try {
+    return new URL(request.url).origin;
+  } catch {
+    return "https://v2.legalintakeflow.com";
+  }
+}
 
 export async function GET(
   _request: Request,
@@ -138,6 +149,14 @@ export async function PATCH(
     return NextResponse.json({ error: "Failed to update invoice." }, { status: 500 });
   }
 
+  let emailResult: {
+    attempted: number;
+    sent: number;
+    skipped: number;
+    failed: number;
+    errors: string[];
+  } | null = null;
+
   if (typeof body.status === "string") {
     await supabaseAdmin.from("partner_billing_invoice_events").insert({
       invoice_id: id,
@@ -165,9 +184,32 @@ export async function PATCH(
           .eq("billable_status", "billable");
       }
     }
+
+    // Email partners when draft → sent
+    if (body.status === "sent" && inv.status === "draft") {
+      try {
+        emailResult = await sendInvoiceSentNotifications({
+          origin: appOrigin(request),
+          invoiceId: id,
+        });
+      } catch (err) {
+        console.error("[PATCH /api/admin/invoices/id] invoice email failed:", err);
+        emailResult = {
+          attempted: 0,
+          sent: 0,
+          skipped: 0,
+          failed: 1,
+          errors: [err instanceof Error ? err.message : "Email send failed."],
+        };
+      }
+    }
   }
 
-  return NextResponse.json({ success: true, data });
+  return NextResponse.json({
+    success: true,
+    data,
+    email: emailResult,
+  });
 }
 
 /** Hard-delete an invoice so it can be regenerated. Resets related leads from invoiced → billable. */
@@ -202,7 +244,6 @@ export async function DELETE(
     .map((i) => i.lead_id)
     .filter((leadId): leadId is string => Boolean(leadId));
 
-  // Remove dependent rows first (ignore missing-table errors where possible)
   await supabaseAdmin.from("partner_billing_invoice_items").delete().eq("invoice_id", id);
   await supabaseAdmin.from("partner_billing_invoice_events").delete().eq("invoice_id", id);
   await supabaseAdmin.from("partner_billing_disputes").delete().eq("invoice_id", id);
