@@ -81,10 +81,12 @@ function InvoiceDetailModal({
   invoiceId,
   onClose,
   onUpdated,
+  onDeleted,
 }: {
   invoiceId: string;
   onClose: () => void;
   onUpdated: (row: Partial<InvoiceRow> & { id: string }) => void;
+  onDeleted: (id: string) => void;
 }) {
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -137,6 +139,29 @@ function InvoiceDetailModal({
       onUpdated(updated);
       await load();
       setActionMsg("Updated.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!invoice) return;
+    const confirmed = window.confirm(
+      `Delete invoice ${invoice.invoice_number}?\n\nThis permanently removes the invoice and line items, and resets related leads from "invoiced" back to "billable" so you can regenerate.`
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    setActionMsg(null);
+    try {
+      const res = await fetch(`/api/admin/invoices/${invoiceId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionMsg(data.error ?? "Delete failed.");
+        return;
+      }
+      onDeleted(invoiceId);
+      onClose();
     } finally {
       setSaving(false);
     }
@@ -249,9 +274,7 @@ function InvoiceDetailModal({
                 <div className="flex flex-wrap gap-2">
                   <button
                     disabled={saving}
-                    onClick={() =>
-                      patch({ notes, payment_instructions: instructions })
-                    }
+                    onClick={() => patch({ notes, payment_instructions: instructions })}
                     className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
                   >
                     Save Notes
@@ -283,6 +306,13 @@ function InvoiceDetailModal({
                       Void
                     </button>
                   )}
+                  <button
+                    disabled={saving}
+                    onClick={handleDelete}
+                    className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    Delete / Reset
+                  </button>
                 </div>
 
                 {actionMsg && <p className="text-xs text-slate-600">{actionMsg}</p>}
@@ -571,6 +601,10 @@ export default function AdminInvoicesPage() {
             setInvoices((prev) =>
               prev.map((i) => (i.id === updated.id ? { ...i, ...updated } : i))
             );
+          }}
+          onDeleted={(id) => {
+            setInvoices((prev) => prev.filter((i) => i.id !== id));
+            setSelectedId(null);
           }}
         />
       )}

@@ -149,7 +149,6 @@ export async function PATCH(
       created_by: "admin",
     });
 
-    // When marked sent/paid, mark related leads as invoiced if still billable
     if (body.status === "sent" || body.status === "paid") {
       const { data: itemRows } = await supabaseAdmin
         .from("partner_billing_invoice_items")
@@ -169,4 +168,69 @@ export async function PATCH(
   }
 
   return NextResponse.json({ success: true, data });
+}
+
+/** Hard-delete an invoice so it can be regenerated. Resets related leads from invoiced → billable. */
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  if (!(await isAdminAuthenticated())) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const { id } = await context.params;
+
+  const { data: invoice, error: invoiceError } = await supabaseAdmin
+    .from("partner_billing_invoices")
+    .select("id, invoice_number, status")
+    .eq("id", id)
+    .single();
+
+  if (invoiceError || !invoice) {
+    return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
+  }
+
+  const inv = invoice as { id: string; invoice_number: string; status: string };
+
+  const { data: itemRows } = await supabaseAdmin
+    .from("partner_billing_invoice_items")
+    .select("lead_id")
+    .eq("invoice_id", id);
+
+  const leadIds = ((itemRows ?? []) as unknown as Array<{ lead_id: string | null }>)
+    .map((i) => i.lead_id)
+    .filter((leadId): leadId is string => Boolean(leadId));
+
+  // Remove dependent rows first (ignore missing-table errors where possible)
+  await supabaseAdmin.from("partner_billing_invoice_items").delete().eq("invoice_id", id);
+  await supabaseAdmin.from("partner_billing_invoice_events").delete().eq("invoice_id", id);
+  await supabaseAdmin.from("partner_billing_disputes").delete().eq("invoice_id", id);
+
+  const { error: deleteError } = await supabaseAdmin
+    .from("partner_billing_invoices")
+    .delete()
+    .eq("id", id);
+
+  if (deleteError) {
+    console.error("[DELETE /api/admin/invoices/id]", deleteError);
+    return NextResponse.json({ error: "Failed to delete invoice." }, { status: 500 });
+  }
+
+  if (leadIds.length > 0) {
+    await supabaseAdmin
+      .from("leads")
+      .update({ billable_status: "billable" })
+      .in("id", leadIds)
+      .eq("billable_status", "invoiced");
+  }
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      deleted_id: inv.id,
+      invoice_number: inv.invoice_number,
+      leads_reset: leadIds.length,
+    },
+  });
 }
