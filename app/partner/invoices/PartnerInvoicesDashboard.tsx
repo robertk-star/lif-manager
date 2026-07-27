@@ -101,14 +101,6 @@ const DISPUTE_STATUS_COLORS: Record<DisputeStatus, string> = {
   declined: "bg-gray-100 text-gray-700",
 };
 
-const DEFAULT_PAYMENT_INSTRUCTIONS = `Pay by check to:
-
-Ardykay LLC
-5722 Goresseto Dr.
-Frisco, TX 75034
-
-Please include the invoice number in the check memo.`;
-
 function currency(cents: number | null | undefined) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
     (cents ?? 0) / 100
@@ -377,7 +369,6 @@ export default function PartnerInvoicesDashboard() {
     <div className="space-y-6">
       <div className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-800">
         Open any invoice to view details, download a CSV, pay online with Stripe, or pay by check.
-        Check payments should be mailed to Ardykay LLC.
       </div>
 
       {paymentBanner && (
@@ -391,14 +382,6 @@ export default function PartnerInvoicesDashboard() {
           {paymentError}
         </div>
       )}
-
-      <section className="rounded-xl border border-green-200 bg-green-50 px-5 py-4 text-sm text-green-800">
-        <h2 className="font-semibold">Pay by check</h2>
-        <p className="mt-1 whitespace-pre-wrap">{DEFAULT_PAYMENT_INSTRUCTIONS}</p>
-        <p className="mt-2 text-xs text-green-700">
-          You can also use <strong>Pay Online</strong> on open invoices when Stripe is configured.
-        </p>
-      </section>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
         <StatCard label="Invoices" value={invoices.length} />
