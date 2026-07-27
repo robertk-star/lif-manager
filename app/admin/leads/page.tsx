@@ -315,7 +315,7 @@ function LeadDetailModal({
                   <select
                     value={assignedId}
                     onChange={(e) => setAssignedId(e.target.value)}
-                    className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                    className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
                   >
                     <option value="">— Unassigned —</option>
                     {partners
@@ -436,6 +436,12 @@ export default function AdminLeadsPage() {
             </a>
             <a href="/admin/leads" className="text-sm font-semibold text-slate-900">
               Leads
+            </a>
+            <a href="/admin/partners" className="text-sm text-slate-500 hover:text-slate-900">
+              Partners
+            </a>
+            <a href="/admin/invoices" className="text-sm text-slate-500 hover:text-slate-900">
+              Invoices
             </a>
           </div>
           <button
