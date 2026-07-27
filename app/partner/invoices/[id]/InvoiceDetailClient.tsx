@@ -148,7 +148,6 @@ export default function InvoiceDetailClient({
         </p>
       )}
 
-      {/* Printable invoice document */}
       <article className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm print:border-0 print:shadow-none">
         <div className="flex flex-col gap-6 sm:flex-row sm:justify-between">
           <div>
@@ -255,9 +254,6 @@ export default function InvoiceDetailClient({
                 Include invoice <strong>{invoice.invoice_number}</strong> in the memo.
               </p>
             </div>
-            <p className="mt-3 whitespace-pre-wrap text-xs text-gray-600">
-              {invoice.payment_instructions}
-            </p>
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">

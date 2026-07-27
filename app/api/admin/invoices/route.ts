@@ -17,11 +17,6 @@ type LeadForInvoice = {
   assigned_at: string | null;
 };
 
-function todayCode() {
-  const d = new Date();
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-}
-
 function toStartOfDayIso(value: string) {
   return `${value}T00:00:00.000Z`;
 }
@@ -48,13 +43,12 @@ function invoiceItemDescription(lead: LeadForInvoice) {
   return parts || lead.external_reference_id || lead.id;
 }
 
+/** Short sequential numbers for new invoices only (e.g. INV-0002). Existing LIF-… numbers are left unchanged. */
 async function nextInvoiceNumber() {
-  const prefix = `LIF-${todayCode()}`;
   const { count } = await supabaseAdmin
     .from("partner_billing_invoices")
-    .select("id", { count: "exact", head: true })
-    .ilike("invoice_number", `${prefix}-%`);
-  return `${prefix}-${String((count ?? 0) + 1).padStart(4, "0")}`;
+    .select("id", { count: "exact", head: true });
+  return `INV-${String((count ?? 0) + 1).padStart(4, "0")}`;
 }
 
 export async function GET(request: Request) {
