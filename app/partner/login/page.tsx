@@ -1,10 +1,12 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 /**
- * Partner login — production-style UI with reliable magic-link POST + email code flow.
+ * Partner login — production-style UI.
+ * Magic link: redirect GET /api/partner/login?token=… (same as original LIF).
+ * Email code: request-login + verify-login-code.
  */
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -22,7 +24,6 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 function PartnerLoginInner() {
   const searchParams = useSearchParams();
-  const formRef = useRef<HTMLFormElement>(null);
 
   const token = searchParams.get("token");
   const error = searchParams.get("error");
@@ -35,15 +36,11 @@ function PartnerLoginInner() {
   const [verifying, setVerifying] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [tokenValue, setTokenValue] = useState("");
 
+  // Match production: GET consume on /api/partner/login (not form POST)
   useEffect(() => {
     if (token) {
-      setTokenValue(token);
-      const id = window.setTimeout(() => {
-        formRef.current?.submit();
-      }, 50);
-      return () => window.clearTimeout(id);
+      window.location.replace(`/api/partner/login?token=${encodeURIComponent(token)}`);
     }
   }, [token]);
 
@@ -63,15 +60,12 @@ function PartnerLoginInner() {
               </svg>
             </div>
             <p className="text-sm text-gray-600">Verifying your login link…</p>
-            <form ref={formRef} method="POST" action="/api/partner/login" className="mt-4">
-              <input type="hidden" name="token" value={tokenValue || token} />
-              <button
-                type="submit"
-                className="text-xs font-medium text-blue-600 hover:underline"
-              >
-                Click here if nothing happens
-              </button>
-            </form>
+            <a
+              href={`/api/partner/login?token=${encodeURIComponent(token)}`}
+              className="mt-4 inline-block text-xs font-medium text-blue-600 hover:underline"
+            >
+              Click here if nothing happens
+            </a>
           </div>
         </div>
       </div>
