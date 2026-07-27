@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+const BILLABLE_STATUSES = ["not_billable", "billable", "invoiced", "paid", "waived"] as const;
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> }
@@ -53,6 +55,8 @@ export async function PATCH(
     status?: string;
     internal_review_notes?: string;
     assigned_partner_account_id?: string | null;
+    billable_status?: string | null;
+    billing_amount_cents?: number | null;
   };
 
   try {
@@ -66,6 +70,41 @@ export async function PATCH(
   if (typeof body.status === "string") updates.status = body.status;
   if (typeof body.internal_review_notes === "string") {
     updates.internal_review_notes = body.internal_review_notes;
+  }
+
+  if (body.billable_status !== undefined) {
+    const next =
+      body.billable_status === null || body.billable_status === ""
+        ? null
+        : String(body.billable_status).trim();
+    if (next !== null && !(BILLABLE_STATUSES as readonly string[]).includes(next)) {
+      return NextResponse.json(
+        {
+          error: `Invalid billable_status. Allowed: ${BILLABLE_STATUSES.join(", ")} or empty.`,
+        },
+        { status: 422 }
+      );
+    }
+    updates.billable_status = next;
+  }
+
+  if (body.billing_amount_cents !== undefined) {
+    if (body.billing_amount_cents === null) {
+      updates.billing_amount_cents = null;
+    } else if (typeof body.billing_amount_cents === "number") {
+      if (!Number.isFinite(body.billing_amount_cents) || body.billing_amount_cents < 0) {
+        return NextResponse.json(
+          { error: "billing_amount_cents must be a non-negative number (cents)." },
+          { status: 422 }
+        );
+      }
+      updates.billing_amount_cents = Math.round(body.billing_amount_cents);
+    } else {
+      return NextResponse.json(
+        { error: "billing_amount_cents must be a number or null." },
+        { status: 422 }
+      );
+    }
   }
 
   if (body.assigned_partner_account_id !== undefined) {

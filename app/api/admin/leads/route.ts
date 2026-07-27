@@ -12,6 +12,7 @@ export async function GET(request: Request) {
   const stateFilter = searchParams.get("state")?.trim().toUpperCase() ?? "";
   const statusFilter = searchParams.get("status")?.trim() ?? "";
   const assignedFilter = searchParams.get("assigned")?.trim() ?? "";
+  const billableFilter = searchParams.get("billable_status")?.trim() ?? "";
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "50", 10) || 50, 200);
 
   let query = supabaseAdmin
@@ -19,7 +20,8 @@ export async function GET(request: Request) {
     .select(
       "id, created_at, source, external_reference_id, dbs_report_number, dbs_consent_given, " +
         "first_name, last_name, phone, email, city, state, zip, benefit_type, application_status, " +
-        "status, assigned_partner_account_id, assigned_at, partner_response_status"
+        "status, assigned_partner_account_id, assigned_at, partner_response_status, " +
+        "billable_status, billing_amount_cents"
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
@@ -35,6 +37,7 @@ export async function GET(request: Request) {
 
   if (stateFilter) query = query.eq("state", stateFilter);
   if (statusFilter) query = query.eq("status", statusFilter);
+  if (billableFilter) query = query.eq("billable_status", billableFilter);
 
   if (assignedFilter === "true") {
     query = query.not("assigned_partner_account_id", "is", null);
