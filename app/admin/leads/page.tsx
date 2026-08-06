@@ -12,8 +12,6 @@ type LeadStatus =
   | "rejected"
   | "spam";
 
-type BillableStatus = "not_billable" | "billable" | "invoiced" | "paid" | "waived";
-
 interface LeadRow {
   id: string;
   created_at: string;
@@ -132,6 +130,305 @@ function Field({ label, value }: { label: string; value: string | null | undefin
       <dd className="mt-0.5 text-sm text-slate-800">
         {value != null && value !== "" ? value : <span className="italic text-slate-400">—</span>}
       </dd>
+    </div>
+  );
+}
+
+function AddLeadModal({
+  partners,
+  onClose,
+  onCreated,
+}: {
+  partners: PartnerAccount[];
+  onClose: () => void;
+  onCreated: (lead: LeadRow) => void;
+}) {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zip, setZip] = useState("");
+  const [benefitType, setBenefitType] = useState("");
+  const [applicationStatus, setApplicationStatus] = useState("");
+  const [medicalSummary, setMedicalSummary] = useState("");
+  const [additionalNotes, setAdditionalNotes] = useState("");
+  const [internalNotes, setInternalNotes] = useState("");
+  const [status, setStatus] = useState<LeadStatus>("new");
+  const [assignedId, setAssignedId] = useState("");
+  const [billableStatus, setBillableStatus] = useState("");
+  const [billingAmountDollars, setBillingAmountDollars] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    let billing_amount_cents: number | null = null;
+    const amountTrim = billingAmountDollars.trim();
+    if (amountTrim !== "") {
+      const dollars = Number(amountTrim);
+      if (!Number.isFinite(dollars) || dollars < 0) {
+        setError("Billing amount must be a valid non-negative dollar amount.");
+        setSaving(false);
+        return;
+      }
+      billing_amount_cents = Math.round(dollars * 100);
+    }
+
+    try {
+      const res = await fetch("/api/admin/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: firstName,
+          last_name: lastName,
+          phone,
+          email,
+          city,
+          state,
+          zip,
+          benefit_type: benefitType,
+          application_status: applicationStatus,
+          medical_summary: medicalSummary,
+          additional_notes: additionalNotes,
+          internal_review_notes: internalNotes,
+          status,
+          assigned_partner_account_id: assignedId || null,
+          billable_status: billableStatus || null,
+          billing_amount_cents,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Failed to create lead.");
+        return;
+      }
+      onCreated(data.data as LeadRow);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-4 py-8">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Add Lead</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Manual entry. Source will be set to <span className="font-medium">manual</span>.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="max-h-[75vh] space-y-5 overflow-y-auto px-6 py-5">
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Contact
+            </h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <input
+                placeholder="First name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <input
+                placeholder="Last name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <input
+                placeholder="Phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <input
+                placeholder="City"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  placeholder="State"
+                  value={state}
+                  maxLength={2}
+                  onChange={(e) => setState(e.target.value.toUpperCase())}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase"
+                />
+                <input
+                  placeholder="ZIP"
+                  value={zip}
+                  onChange={(e) => setZip(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-slate-400">At least one of name, phone, or email is required.</p>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Benefit
+            </h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <input
+                placeholder="Benefit type (e.g. SSDI)"
+                value={benefitType}
+                onChange={(e) => setBenefitType(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <input
+                placeholder="Application status"
+                value={applicationStatus}
+                onChange={(e) => setApplicationStatus(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <textarea
+              rows={3}
+              placeholder="Medical summary"
+              value={medicalSummary}
+              onChange={(e) => setMedicalSummary(e.target.value)}
+              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <textarea
+              rows={2}
+              placeholder="Additional notes"
+              value={additionalNotes}
+              onChange={(e) => setAdditionalNotes(e.target.value)}
+              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </section>
+
+          <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Assignment & billing
+            </h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Status</label>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as LeadStatus)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  {STATUS_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Assign partner
+                </label>
+                <select
+                  value={assignedId}
+                  onChange={(e) => setAssignedId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">— Unassigned —</option>
+                  {partners
+                    .filter((p) => p.status === "active" || p.status === "pending")
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.firm_name}
+                      </option>
+                    ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-400">
+                  If assigned, the partner is emailed automatically.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Billable status
+                </label>
+                <select
+                  value={billableStatus}
+                  onChange={(e) => setBillableStatus(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  {BILLABLE_OPTIONS.map((opt) => (
+                    <option key={opt.value || "empty"} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Billing amount (USD)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="e.g. 150.00"
+                  value={billingAmountDollars}
+                  onChange={(e) => setBillingAmountDollars(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <textarea
+              rows={2}
+              placeholder="Internal review notes"
+              value={internalNotes}
+              onChange={(e) => setInternalNotes(e.target.value)}
+              className="w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            />
+          </section>
+
+          {error && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              {saving ? "Creating…" : "Create Lead"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -280,7 +577,11 @@ function LeadDetailModal({
                   <Field
                     label="Source"
                     value={
-                      lead.source === "disabilitybenefitsscreening" ? "DBS" : lead.source
+                      lead.source === "disabilitybenefitsscreening"
+                        ? "DBS"
+                        : lead.source === "manual"
+                          ? "Manual"
+                          : lead.source
                     }
                   />
                   <Field label="DBS Report #" value={lead.dbs_report_number} />
@@ -450,6 +751,7 @@ export default function AdminLeadsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
 
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState("");
@@ -505,9 +807,11 @@ export default function AdminLeadsPage() {
   }
 
   function handleUpdated(updated: Partial<LeadDetail> & { id: string }) {
-    setLeads((prev) =>
-      prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l))
-    );
+    setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
+  }
+
+  function handleCreated(lead: LeadRow) {
+    setLeads((prev) => [lead, ...prev]);
   }
 
   return (
@@ -529,21 +833,27 @@ export default function AdminLeadsPage() {
               Invoices
             </a>
           </div>
-          <button
-            onClick={handleLogout}
-            className="text-xs text-slate-400 hover:text-slate-600"
-          >
+          <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-slate-600">
             Sign Out
           </button>
         </div>
       </nav>
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-8">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Lead Queue</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Leads from DBS. Mark billable and set amounts before creating invoices.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Lead Queue</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Leads from DBS or manual entry. Mark billable before creating invoices.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowAdd(true)}
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            + Add Lead
+          </button>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -699,6 +1009,14 @@ export default function AdminLeadsPage() {
           partners={partners}
           onClose={() => setSelectedId(null)}
           onUpdated={handleUpdated}
+        />
+      )}
+
+      {showAdd && (
+        <AddLeadModal
+          partners={partners}
+          onClose={() => setShowAdd(false)}
+          onCreated={handleCreated}
         />
       )}
     </div>
