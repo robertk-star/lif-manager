@@ -36,6 +36,20 @@ function str(val: unknown): string | null {
   return s.length > 0 ? s : null;
 }
 
+/** Prefer explicit Caller ID fields from Retell/DBS. */
+function parseCallerId(body: Record<string, unknown>): string | null {
+  return (
+    str(body.caller_id) ??
+    str(body.callerId) ??
+    str(body.caller_number) ??
+    str(body.from_number) ??
+    str(body.fromNumber) ??
+    str(body.retell_caller_id) ??
+    str(body.retell_from_number) ??
+    null
+  );
+}
+
 function parseOptionalTimestamp(val: unknown): string | null | "invalid" {
   const value = str(val);
   if (!value) return null;
@@ -58,6 +72,7 @@ function buildPayloadSummary(body: Record<string, unknown>) {
     has_first_name: Boolean(str(body.first_name)),
     has_last_name: Boolean(str(body.last_name)),
     has_phone: Boolean(str(body.phone)),
+    has_caller_id: Boolean(parseCallerId(body)),
     has_email: Boolean(str(body.email)),
     state: str(body.state)?.toUpperCase() ?? null,
     benefit_type: str(body.benefit_type),
@@ -134,6 +149,9 @@ function dryRunResponse(input: {
  *   consent_given === true
  *   external_reference_id starts with "dbs:"
  *
+ * Optional Retell fields:
+ *   caller_id (also accepts callerId, from_number, fromNumber, caller_number, retell_caller_id)
+ *
  * On successful create: auto-routes to best eligible partner by default.
  */
 export async function POST(request: Request) {
@@ -177,6 +195,7 @@ export async function POST(request: Request) {
   const firstName = str(body.first_name);
   const lastName = str(body.last_name);
   const phone = str(body.phone);
+  const callerId = parseCallerId(body);
   const email = str(body.email);
   const city = str(body.city);
   const state = str(body.state)?.toUpperCase() ?? null;
@@ -261,7 +280,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: errorMessage }, { status: 400 });
   }
 
-  const receiptMetadata = {
+  const receiptMetadata: Record<string, unknown> = {
     dbs_report_number: dbsReportNumber,
     consent_given: true,
     dbs_consent_given: true,
@@ -270,6 +289,11 @@ export async function POST(request: Request) {
     dbs_received_at: receivedAt,
     raw_payload: body,
   };
+
+  // Update Caller ID on duplicate re-posts when DBS includes it
+  if (callerId) {
+    receiptMetadata.caller_id = callerId;
+  }
 
   const { data: existing, error: lookupError } = await supabaseAdmin
     .from("leads")
@@ -392,6 +416,7 @@ export async function POST(request: Request) {
       first_name: firstName,
       last_name: lastName,
       phone,
+      caller_id: callerId,
       email,
       city,
       state,
