@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     .from("leads")
     .select(
       "id, created_at, updated_at, source, external_reference_id, " +
-        "first_name, last_name, phone, email, city, state, zip, " +
+        "first_name, last_name, phone, caller_id, email, city, state, zip, " +
         "benefit_type, application_status, medical_summary, additional_notes, " +
         "status, assigned_partner_account_id, assigned_at, partner_response_status, " +
         "partner_response_updated_at, partner_viewed_at"
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
   if (search) {
     query = query.or(
       `first_name.ilike.%${search}%,last_name.ilike.%${search}%,` +
-        `email.ilike.%${search}%,phone.ilike.%${search}%,` +
+        `email.ilike.%${search}%,phone.ilike.%${search}%,caller_id.ilike.%${search}%,` +
         `state.ilike.%${search}%,external_reference_id.ilike.%${search}%`
     );
   }
