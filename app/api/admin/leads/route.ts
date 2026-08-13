@@ -50,7 +50,7 @@ export async function GET(request: Request) {
       "id, created_at, source, external_reference_id, dbs_report_number, dbs_consent_given, " +
         "first_name, last_name, phone, email, city, state, zip, benefit_type, application_status, " +
         "status, assigned_partner_account_id, assigned_at, partner_response_status, " +
-        "billable_status, billing_amount_cents"
+        "billable_status, billing_amount_cents, caller_id"
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
@@ -269,7 +269,17 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-    return NextResponse.json({ error: "Failed to create lead." }, { status: 500 });
+    const errObj = error as { message?: string; code?: string; details?: string; hint?: string } | null;
+    return NextResponse.json(
+      {
+        error: "Failed to create lead.",
+        details: errObj?.message ?? null,
+        code: errObj?.code ?? null,
+        hint: errObj?.hint ?? null,
+        dbDetails: errObj?.details ?? null,
+      },
+      { status: 500 }
+    );
   }
 
   const lead = data as { id: string; assigned_partner_account_id?: string | null };
