@@ -168,15 +168,17 @@ export async function POST(request: Request) {
     );
   }
 
-  let billableStatus: string | null = null;
+  // billable_status is NOT NULL in the DB — default phone/manual leads to not_billable
+  let billableStatus = "not_billable";
   if (body.billable_status !== undefined && body.billable_status !== null && body.billable_status !== "") {
-    billableStatus = String(body.billable_status).trim();
-    if (!(BILLABLE_STATUSES as readonly string[]).includes(billableStatus)) {
+    const candidate = String(body.billable_status).trim();
+    if (!(BILLABLE_STATUSES as readonly string[]).includes(candidate)) {
       return NextResponse.json(
         { error: `Invalid billable_status. Allowed: ${BILLABLE_STATUSES.join(", ")}.` },
         { status: 422 }
       );
     }
+    billableStatus = candidate;
   }
 
   let billingAmountCents: number | null = null;
