@@ -32,7 +32,7 @@ function str(val: unknown): string | null {
 }
 
 export async function GET(request: Request) {
-  if (!(await isAdminAuthenticated())) {
+  if (!(await isAdminAuthenticated(request))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
@@ -115,7 +115,7 @@ export async function GET(request: Request) {
 
 /** Create a manual lead from Admin. */
 export async function POST(request: Request) {
-  if (!(await isAdminAuthenticated())) {
+  if (!(await isAdminAuthenticated(request))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
