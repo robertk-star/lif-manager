@@ -68,17 +68,49 @@ async function verifyToken(token: string): Promise<boolean> {
   return hmacVerify(`${issuedAtStr}.${expiresAtStr}`, signature, secret);
 }
 
+/** Extract admin session token from a raw Cookie header. */
+function tokenFromCookieHeader(cookieHeader: string | null): string | null {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(";");
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed.startsWith(`${ADMIN_COOKIE_NAME}=`)) continue;
+    const raw = trimmed.slice(ADMIN_COOKIE_NAME.length + 1);
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  return null;
+}
+
 export async function createAdminSessionToken(): Promise<string> {
   return createToken();
 }
 
-export async function isAdminAuthenticated(): Promise<boolean> {
+/**
+ * Verify the admin session cookie server-side.
+ * Prefer reading from the incoming Request cookie header when provided
+ * (more reliable in some Route Handler POST paths), then fall back to next/headers.
+ */
+export async function isAdminAuthenticated(request?: Request): Promise<boolean> {
   try {
-    const cookieStore = await cookies();
-    const session = cookieStore.get(ADMIN_COOKIE_NAME);
-    if (!session?.value) return false;
-    return verifyToken(session.value);
-  } catch {
+    let token: string | null = null;
+
+    if (request) {
+      token = tokenFromCookieHeader(request.headers.get("cookie"));
+    }
+
+    if (!token) {
+      const cookieStore = await cookies();
+      token = cookieStore.get(ADMIN_COOKIE_NAME)?.value ?? null;
+    }
+
+    if (!token) return false;
+    return verifyToken(token);
+  } catch (err) {
+    console.warn("[adminAuth] isAdminAuthenticated failed:", err);
     return false;
   }
 }
