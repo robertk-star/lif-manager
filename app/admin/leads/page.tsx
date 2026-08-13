@@ -161,13 +161,48 @@ export default function AdminLeadsPage() {
       const res = await fetch("/api/admin/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ first_name: firstName, last_name: lastName, phone, email, city, state, zip, benefit_type: benefitType, application_status: applicationStatus, medical_summary: medicalSummary, assigned_partner_account_id: addAssignedId || null }),
+        body: JSON.stringify({
+          first_name: firstName,
+          last_name: lastName,
+          phone,
+          email,
+          city,
+          state,
+          zip,
+          benefit_type: benefitType,
+          application_status: applicationStatus,
+          medical_summary: medicalSummary,
+          assigned_partner_account_id: addAssignedId || null,
+        }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setAddError(data.error ?? "Create failed."); return; }
+      if (!res.ok) {
+        const parts = [
+          data.error ?? "Create failed.",
+          data.details ? `Details: ${data.details}` : null,
+          data.code ? `Code: ${data.code}` : null,
+          data.hint ? `Hint: ${data.hint}` : null,
+          data.dbDetails ? `DB: ${data.dbDetails}` : null,
+        ].filter(Boolean);
+        setAddError(parts.join(" · "));
+        return;
+      }
       setLeads((prev) => [data.data, ...prev]);
       setShowAdd(false);
-    } finally { setCreating(false); }
+      setFirstName("");
+      setLastName("");
+      setPhone("");
+      setEmail("");
+      setCity("");
+      setState("");
+      setZip("");
+      setBenefitType("");
+      setApplicationStatus("");
+      setMedicalSummary("");
+      setAddAssignedId("");
+    } finally {
+      setCreating(false);
+    }
   }
 
   return (
@@ -292,7 +327,7 @@ export default function AdminLeadsPage() {
               </div>
               <textarea rows={3} placeholder="Medical summary" value={medicalSummary} onChange={(e) => setMedicalSummary(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
               <select value={addAssignedId} onChange={(e) => setAddAssignedId(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="">— Unassigned —</option>{partners.filter((p) => p.status === "active" || p.status === "pending").map((p) => <option key={p.id} value={p.id}>{p.firm_name}</option>)}</select>
-              {addError && <p className="text-sm text-red-600">{addError}</p>}
+              {addError && <p className="text-sm text-red-600 break-words">{addError}</p>}
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setShowAdd(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm">Cancel</button>
                 <button type="submit" disabled={creating} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{creating ? "Creating…" : "Create Lead"}</button>
