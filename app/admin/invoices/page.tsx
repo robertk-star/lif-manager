@@ -513,7 +513,7 @@ export default function AdminInvoicesPage() {
             />
             <input
               type="date"
-bsp required
+              required
               value={periodEnd}
               onChange={(e) => setPeriodEnd(e.target.value)}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
