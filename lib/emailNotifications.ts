@@ -8,6 +8,15 @@ export type EmailSendResult = {
   error?: string | null;
 };
 
+export type InvoiceEmailRecipientResult = {
+  email: string;
+  name: string | null;
+  status: "sent" | "failed" | "skipped";
+  error?: string | null;
+  notificationId?: string | null;
+  providerMessageId?: string | null;
+};
+
 type SendTransactionalEmailInput = {
   to: string;
   recipientName?: string | null;
@@ -367,7 +376,6 @@ export async function sendLeadAssignedNotifications(input: {
 
 /** Resolve who should receive invoice emails for a partner account. */
 async function getInvoiceEmailRecipients(partnerAccountId: string): Promise<PartnerUserForEmail[]> {
-  // Preferred: explicit opt-in flag
   const withFlag = await supabaseAdmin
     .from("partner_users")
     .select(
@@ -384,7 +392,6 @@ async function getInvoiceEmailRecipients(partnerAccountId: string): Promise<Part
     return Array.from(new Map(users.map((u) => [u.email.toLowerCase(), u])).values());
   }
 
-  // Fallback if column not migrated: active owner/admin (previous default)
   console.warn(
     "[getInvoiceEmailRecipients] receives_invoice_emails unavailable, falling back to owner/admin:",
     withFlag.error.message
@@ -423,7 +430,14 @@ export async function sendInvoiceSentNotifications(input: {
 
   if (invoiceError || !invoiceRow) {
     console.error("[sendInvoiceSentNotifications] Invoice lookup failed:", invoiceError);
-    return { attempted: 0, sent: 0, skipped: 0, failed: 0, errors: ["Invoice lookup failed."] };
+    return {
+      attempted: 0,
+      sent: 0,
+      skipped: 0,
+      failed: 0,
+      errors: ["Invoice lookup failed."],
+      recipients: [] as InvoiceEmailRecipientResult[],
+    };
   }
 
   const invoice = invoiceRow as InvoiceForEmail;
@@ -442,6 +456,7 @@ export async function sendInvoiceSentNotifications(input: {
       skipped: 0,
       failed: 0,
       errors: ["Partner account lookup failed."],
+      recipients: [] as InvoiceEmailRecipientResult[],
     };
   }
 
@@ -457,6 +472,7 @@ export async function sendInvoiceSentNotifications(input: {
       errors: [
         "No invoice email recipients configured. Open Partners → Manage → Partner Users and enable Invoice emails for at least one active user.",
       ],
+      recipients: [] as InvoiceEmailRecipientResult[],
     };
   }
 
@@ -485,6 +501,7 @@ export async function sendInvoiceSentNotifications(input: {
   let skipped = 0;
   let failed = 0;
   const errors: string[] = [];
+  const recipients: InvoiceEmailRecipientResult[] = [];
 
   for (const user of dedupedUsers) {
     const name = displayName(user.first_name, user.last_name) ?? "Partner";
@@ -563,11 +580,34 @@ export async function sendInvoiceSentNotifications(input: {
       },
     });
 
-    if (result.sent) sent += 1;
-    else if (result.skipped) skipped += 1;
-    else {
+    if (result.sent) {
+      sent += 1;
+      recipients.push({
+        email: user.email,
+        name,
+        status: "sent",
+        notificationId: result.notificationId,
+        providerMessageId: result.providerMessageId ?? null,
+      });
+    } else if (result.skipped) {
+      skipped += 1;
+      recipients.push({
+        email: user.email,
+        name,
+        status: "skipped",
+        error: result.error ?? null,
+        notificationId: result.notificationId,
+      });
+    } else {
       failed += 1;
-      if (result.error) errors.push(result.error);
+      if (result.error) errors.push(`${user.email}: ${result.error}`);
+      recipients.push({
+        email: user.email,
+        name,
+        status: "failed",
+        error: result.error ?? null,
+        notificationId: result.notificationId,
+      });
     }
   }
 
@@ -587,10 +627,13 @@ export async function sendInvoiceSentNotifications(input: {
       previous_status: invoice.status,
       next_status: "sent",
       amount_cents: invoice.total_cents,
-      notes: `Invoice email sent to ${sent} recipient${sent === 1 ? "" : "s"}.`,
+      notes: `Invoice email sent to ${sent} recipient${sent === 1 ? "" : "s"}: ${recipients
+        .filter((r) => r.status === "sent")
+        .map((r) => r.email)
+        .join(", ")}.`,
       created_by: "admin",
     });
   }
 
-  return { attempted: dedupedUsers.length, sent, skipped, failed, errors };
+  return { attempted: dedupedUsers.length, sent, skipped, failed, errors, recipients };
 }

@@ -16,10 +16,10 @@ function appOrigin(request: Request) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  if (!(await isAdminAuthenticated())) {
+  if (!(await isAdminAuthenticated(request))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
@@ -35,7 +35,7 @@ export async function GET(
     return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
   }
 
-  const [{ data: items }, { data: partner }] = await Promise.all([
+  const [{ data: items }, { data: partner }, { data: emails }] = await Promise.all([
     supabaseAdmin
       .from("partner_billing_invoice_items")
       .select("id, lead_id, description, amount_cents, created_at")
@@ -46,6 +46,13 @@ export async function GET(
       .select("id, firm_name, email")
       .eq("id", (invoice as { partner_account_id: string }).partner_account_id)
       .maybeSingle(),
+    supabaseAdmin
+      .from("email_notifications")
+      .select(
+        "id, recipient_email, recipient_name, subject, status, sent_at, created_at, error_message, provider_message_id, notification_type"
+      )
+      .eq("invoice_id", id)
+      .order("created_at", { ascending: false }),
   ]);
 
   return NextResponse.json({
@@ -55,6 +62,7 @@ export async function GET(
       partner_firm_name: (partner as { firm_name?: string } | null)?.firm_name ?? null,
       partner_email: (partner as { email?: string } | null)?.email ?? null,
       items: items ?? [],
+      emails: emails ?? [],
     },
   });
 }
@@ -63,7 +71,7 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  if (!(await isAdminAuthenticated())) {
+  if (!(await isAdminAuthenticated(request))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
@@ -155,6 +163,12 @@ export async function PATCH(
     skipped: number;
     failed: number;
     errors: string[];
+    recipients?: Array<{
+      email: string;
+      name: string | null;
+      status: string;
+      error?: string | null;
+    }>;
   } | null = null;
 
   if (typeof body.status === "string") {
@@ -185,7 +199,6 @@ export async function PATCH(
       }
     }
 
-    // Email partners when draft → sent
     if (body.status === "sent" && inv.status === "draft") {
       try {
         emailResult = await sendInvoiceSentNotifications({
@@ -200,6 +213,7 @@ export async function PATCH(
           skipped: 0,
           failed: 1,
           errors: [err instanceof Error ? err.message : "Email send failed."],
+          recipients: [],
         };
       }
     }
@@ -212,12 +226,11 @@ export async function PATCH(
   });
 }
 
-/** Hard-delete an invoice so it can be regenerated. Resets related leads from invoiced → billable. */
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  if (!(await isAdminAuthenticated())) {
+  if (!(await isAdminAuthenticated(request))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
