@@ -32,9 +32,23 @@ interface InvoiceItem {
   amount_cents: number;
 }
 
+interface EmailNotificationRow {
+  id: string;
+  recipient_email: string;
+  recipient_name: string | null;
+  subject: string | null;
+  status: string;
+  sent_at: string | null;
+  created_at: string;
+  error_message: string | null;
+  provider_message_id: string | null;
+  notification_type: string | null;
+}
+
 interface InvoiceDetail extends InvoiceRow {
   partner_email: string | null;
   items: InvoiceItem[];
+  emails?: EmailNotificationRow[];
 }
 
 interface PartnerOption {
@@ -75,6 +89,17 @@ function formatDate(iso: string | null) {
   });
 }
 
+function formatDateTime(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function monthBounds() {
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -85,7 +110,6 @@ function monthBounds() {
   };
 }
 
-/** Client-facing invoice layout (same structure partners see). */
 function ClientInvoicePreview({ invoice }: { invoice: InvoiceDetail }) {
   const items = invoice.items ?? [];
 
@@ -122,9 +146,7 @@ function ClientInvoicePreview({ invoice }: { invoice: InvoiceDetail }) {
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Bill to</p>
           <p className="mt-1 font-semibold text-[#0d1b2e]">{invoice.partner_firm_name}</p>
-          {invoice.partner_email && (
-            <p className="text-sm text-gray-500">{invoice.partner_email}</p>
-          )}
+          {invoice.partner_email && <p className="text-sm text-gray-500">{invoice.partner_email}</p>}
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Period</p>
@@ -401,10 +423,6 @@ export default function AdminInvoicesPage() {
           />
           {createError && <p className="break-words text-sm text-red-600">{createError}</p>}
           {createOk && <p className="text-sm text-green-600">{createOk}</p>}
-          <p className="text-xs text-slate-400">
-            Pulls billable leads in the date range. Prior sent/partially paid invoices with a remaining
-            balance are included with line-item detail; unpaid balance is added to the new total due.
-          </p>
         </form>
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -531,6 +549,7 @@ function InvoiceDetailModal({
   const [instructions, setInstructions] = useState("");
   const [saving, setSaving] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [emailConfirm, setEmailConfirm] = useState<string | null>(null);
   const [tab, setTab] = useState<"manage" | "preview">("preview");
 
   const load = useCallback(async () => {
@@ -561,6 +580,7 @@ function InvoiceDetailModal({
   async function patch(body: Record<string, unknown>) {
     setSaving(true);
     setActionMsg(null);
+    setEmailConfirm(null);
     try {
       const res = await fetch(`/api/admin/invoices/${invoiceId}`, {
         method: "PATCH",
@@ -573,8 +593,43 @@ function InvoiceDetailModal({
         return;
       }
       onUpdated(data.data as InvoiceRow);
+
+      if (body.status === "sent" && data.email) {
+        const e = data.email as {
+          attempted: number;
+          sent: number;
+          skipped: number;
+          failed: number;
+          errors?: string[];
+          recipients?: Array<{ email: string; name: string | null; status: string; error?: string | null }>;
+        };
+        const lines: string[] = [];
+        if (e.sent > 0) {
+          lines.push(`Email accepted by provider for ${e.sent} recipient${e.sent === 1 ? "" : "s"}.`);
+        } else {
+          lines.push("No invoice emails were sent.");
+        }
+        if (e.recipients && e.recipients.length > 0) {
+          for (const r of e.recipients) {
+            const who = r.name ? `${r.name} <${r.email}>` : r.email;
+            if (r.status === "sent") lines.push(`✓ Sent to ${who}`);
+            else if (r.status === "skipped") lines.push(`⊘ Skipped ${who}${r.error ? ` — ${r.error}` : ""}`);
+            else lines.push(`✗ Failed ${who}${r.error ? ` — ${r.error}` : ""}`);
+          }
+        }
+        if (e.errors && e.errors.length > 0) {
+          lines.push(...e.errors.map((err) => `Error: ${err}`));
+        }
+        lines.push(
+          "Note: \"Sent\" means Resend accepted the message. Inbox delivery/opens are not tracked unless Resend webhooks are configured."
+        );
+        setEmailConfirm(lines.join("\n"));
+        setTab("manage");
+      } else {
+        setActionMsg("Updated.");
+      }
+
       await load();
-      setActionMsg("Updated.");
     } finally {
       setSaving(false);
     }
@@ -603,6 +658,8 @@ function InvoiceDetailModal({
       setSaving(false);
     }
   }
+
+  const emails = invoice?.emails ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-4 py-8">
@@ -658,6 +715,12 @@ function InvoiceDetailModal({
 
           {!loading && invoice && tab === "manage" && (
             <>
+              {emailConfirm && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 whitespace-pre-wrap">
+                  {emailConfirm}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-xs uppercase text-slate-400">Status</p>
@@ -683,11 +746,52 @@ function InvoiceDetailModal({
                 </div>
               </div>
 
-              {invoice.notes && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  {invoice.notes}
-                </div>
-              )}
+              <div>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Email delivery log
+                </h3>
+                {emails.length === 0 ? (
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                    No invoice emails logged yet. Click Mark Sent to notify recipients.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                    {emails.map((em) => (
+                      <div key={em.id} className="px-3 py-2.5 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="font-medium text-slate-800">
+                              {em.recipient_name ? `${em.recipient_name} · ` : ""}
+                              {em.recipient_email}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {em.subject ?? "Invoice email"} · {formatDateTime(em.sent_at ?? em.created_at)}
+                            </p>
+                          </div>
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${
+                              em.status === "sent"
+                                ? "bg-green-100 text-green-800"
+                                : em.status === "failed"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            {em.status}
+                          </span>
+                        </div>
+                        {em.error_message && (
+                          <p className="mt-1 text-xs text-red-600">{em.error_message}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-2 text-xs text-slate-400">
+                  Status <strong>sent</strong> means Resend accepted the message for delivery. We do not
+                  currently track mailbox delivery or opens.
+                </p>
+              </div>
 
               <div>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
