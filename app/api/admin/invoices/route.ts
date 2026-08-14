@@ -199,7 +199,6 @@ export async function POST(request: Request) {
 
   const leads = (leadRows ?? []) as unknown as LeadForInvoice[];
 
-  // Prior unpaid invoices for this partner (sent / partially paid with remaining balance)
   const { data: priorRows, error: priorError } = await supabaseAdmin
     .from("partner_billing_invoices")
     .select(
@@ -260,33 +259,38 @@ export async function POST(request: Request) {
 
   if (invoiceError || !invoice) {
     console.error("[POST /api/admin/invoices] invoice", invoiceError);
-    return NextResponse.json({ error: "Failed to create invoice draft." }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Failed to create invoice draft.",
+        details: (invoiceError as { message?: string } | null)?.message ?? null,
+      },
+      { status: 500 }
+    );
   }
 
   const newInvoiceId = (invoice as { id: string }).id;
 
+  // Build items carefully: lead_id required when possible, positive amounts only, safe billing_status
   type ItemInsert = {
     invoice_id: string;
-    lead_id: string | null;
+    lead_id?: string;
     description: string;
     amount_cents: number;
-    billing_status_at_creation: string | null;
+    billing_status_at_creation: string;
   };
 
   const items: ItemInsert[] = [];
 
-  // Current period lead charges
   for (const lead of leads) {
     items.push({
       invoice_id: newInvoiceId,
       lead_id: lead.id,
       description: invoiceItemDescription(lead),
       amount_cents: lead.billing_amount_cents ?? 0,
-      billing_status_at_creation: lead.billable_status,
+      billing_status_at_creation: "billable",
     });
   }
 
-  // Prior unpaid invoice details (line items + payment credit if partial)
   for (const prior of priorInvoices) {
     const { data: priorItemRows } = await supabaseAdmin
       .from("partner_billing_invoice_items")
@@ -295,81 +299,90 @@ export async function POST(request: Request) {
       .order("created_at", { ascending: true });
 
     const priorItems = (priorItemRows ?? []) as unknown as PriorItem[];
+    const paid = prior.amount_paid_cents ?? 0;
+    const fullyUnpaid = paid <= 0;
 
-    items.push({
-      invoice_id: newInvoiceId,
-      lead_id: null,
-      description: `—— Prior invoice ${prior.invoice_number} (${prior.period_start} – ${prior.period_end}) · unpaid ${formatMoney(prior.balance_due_cents)} ——`,
-      amount_cents: 0,
-      billing_status_at_creation: "prior_section",
-    });
-
-    if (priorItems.length > 0) {
+    if (fullyUnpaid && priorItems.length > 0) {
+      // Copy each prior line item with original lead_id so details appear on the new invoice
       for (const pi of priorItems) {
-        items.push({
+        const row: ItemInsert = {
           invoice_id: newInvoiceId,
-          lead_id: pi.lead_id,
           description: `[${prior.invoice_number}] ${pi.description}`,
-          amount_cents: pi.amount_cents,
-          billing_status_at_creation: pi.billing_status_at_creation ?? "prior_balance",
-        });
+          amount_cents: Math.max(0, pi.amount_cents),
+          billing_status_at_creation: "billable",
+        };
+        if (pi.lead_id) row.lead_id = pi.lead_id;
+        items.push(row);
       }
     } else {
-      // No line items stored — still show the remaining balance as a single line
-      items.push({
+      // Partial payment or no stored items: one line for remaining balance with detail in description
+      const detailParts = priorItems.map((pi) => pi.description).filter(Boolean);
+      const detail =
+        detailParts.length > 0
+          ? ` · ${detailParts.slice(0, 8).join("; ")}${detailParts.length > 8 ? "…" : ""}`
+          : "";
+      const row: ItemInsert = {
         invoice_id: newInvoiceId,
-        lead_id: null,
-        description: `[${prior.invoice_number}] Prior unpaid balance`,
+        description: `Prior unpaid ${prior.invoice_number} (${prior.period_start} – ${prior.period_end})${detail}`,
         amount_cents: prior.balance_due_cents,
-        billing_status_at_creation: "prior_balance",
-      });
-    }
-
-    // If prior was partially paid, credit the amount already paid so total matches remaining balance
-    if ((prior.amount_paid_cents ?? 0) > 0) {
-      items.push({
-        invoice_id: newInvoiceId,
-        lead_id: null,
-        description: `[${prior.invoice_number}] Less: payments already received`,
-        amount_cents: -Math.abs(prior.amount_paid_cents),
-        billing_status_at_creation: "prior_payment_credit",
-      });
+        billing_status_at_creation: "billable",
+      };
+      const anchorLeadId =
+        priorItems.find((pi) => pi.lead_id)?.lead_id ?? leads[0]?.id ?? null;
+      if (anchorLeadId) row.lead_id = anchorLeadId;
+      items.push(row);
     }
   }
 
-  // Reconcile: items may sum to period + full prior totals − payments = period + prior balances
-  const itemsSum = items.reduce((s, i) => s + i.amount_cents, 0);
-  if (itemsSum !== totalCents) {
-    // Safety adjustment so invoice total matches intended balance due
+  // Drop zero-amount rows (can violate checks) except we already avoid them
+  const insertItems = items.filter((i) => i.amount_cents !== 0 || leads.length === 0);
+
+  // Ensure sum matches intended total (period + prior balances)
+  const itemsSum = insertItems.reduce((s, i) => s + i.amount_cents, 0);
+  if (itemsSum !== totalCents && totalCents > 0) {
     const delta = totalCents - itemsSum;
-    if (delta !== 0) {
-      items.push({
+    if (delta > 0) {
+      const adj: ItemInsert = {
         invoice_id: newInvoiceId,
-        lead_id: null,
-        description: "Balance adjustment",
+        description: "Prior balance reconciliation",
         amount_cents: delta,
-        billing_status_at_creation: "adjustment",
-      });
+        billing_status_at_creation: "billable",
+      };
+      const anchor = insertItems.find((i) => i.lead_id)?.lead_id ?? leads[0]?.id;
+      if (anchor) adj.lead_id = anchor;
+      insertItems.push(adj);
+    } else if (delta < 0 && insertItems.length > 0) {
+      // Reduce the last prior-related line rather than inserting a negative amount
+      const last = insertItems[insertItems.length - 1];
+      last.amount_cents = Math.max(0, last.amount_cents + delta);
     }
   }
 
   const { error: itemsError } = await supabaseAdmin
     .from("partner_billing_invoice_items")
-    .insert(items);
+    .insert(insertItems);
 
   if (itemsError) {
     console.error("[POST /api/admin/invoices] items", itemsError);
     await supabaseAdmin.from("partner_billing_invoices").delete().eq("id", newInvoiceId);
+    const errObj = itemsError as {
+      message?: string;
+      code?: string;
+      details?: string;
+      hint?: string;
+    };
     return NextResponse.json(
       {
         error: "Failed to create invoice items.",
-        details: (itemsError as { message?: string }).message ?? null,
+        details: errObj.message ?? null,
+        code: errObj.code ?? null,
+        hint: errObj.hint ?? null,
+        dbDetails: errObj.details ?? null,
       },
       { status: 500 }
     );
   }
 
-  // Carry prior balances onto this invoice so they are not double-counted as outstanding
   for (const prior of priorInvoices) {
     const carriedNote = `Unpaid balance of ${formatMoney(prior.balance_due_cents)} carried forward to ${invoiceNumber}.`;
     const nextNotes = [prior.notes, carriedNote].filter(Boolean).join(" ");
@@ -411,7 +424,7 @@ export async function POST(request: Request) {
       data: {
         ...invoice,
         partner_firm_name: (partner as { firm_name: string }).firm_name,
-        item_count: items.length,
+        item_count: insertItems.length,
         period_lead_count: leads.length,
         period_cents: periodCents,
         prior_balance_cents: priorBalanceCents,
