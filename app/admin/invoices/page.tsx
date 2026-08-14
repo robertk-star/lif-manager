@@ -27,7 +27,7 @@ interface InvoiceRow {
 
 interface InvoiceItem {
   id: string;
-  lead_id: string;
+  lead_id: string | null;
   description: string;
   amount_cents: number;
 }
@@ -229,20 +229,42 @@ function InvoiceDetailModal({
                 </div>
               </div>
 
+              {invoice.notes && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  {invoice.notes}
+                </div>
+              )}
+
               <div>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                   Line Items ({invoice.items?.length ?? 0})
                 </h3>
                 <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-                  {(invoice.items ?? []).map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between px-3 py-2 text-sm"
-                    >
-                      <span className="pr-4 text-slate-700">{item.description}</span>
-                      <span className="shrink-0 font-medium">{currency(item.amount_cents)}</span>
-                    </div>
-                  ))}
+                  {(invoice.items ?? []).map((item) => {
+                    const isSection = item.description.startsWith("——");
+                    const isCredit = item.amount_cents < 0;
+                    return (
+                      <div
+                        key={item.id}
+                        className={`flex items-center justify-between px-3 py-2 text-sm ${
+                          isSection ? "bg-slate-50 font-medium text-slate-600" : ""
+                        }`}
+                      >
+                        <span className={`pr-4 ${isSection ? "text-slate-600" : "text-slate-700"}`}>
+                          {item.description}
+                        </span>
+                        {!isSection && (
+                          <span
+                            className={`shrink-0 font-medium ${
+                              isCredit ? "text-green-700" : ""
+                            }`}
+                          >
+                            {currency(item.amount_cents)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                   {(invoice.items ?? []).length === 0 && (
                     <p className="px-3 py-4 text-sm text-slate-400">No items.</p>
                   )}
@@ -396,11 +418,27 @@ export default function AdminInvoicesPage() {
         setCreateError(data.error ?? "Failed to create invoice.");
         return;
       }
-      setCreateOk(
-        `Created ${data.data.invoice_number} with ${data.data.item_count} lead${
-          data.data.item_count === 1 ? "" : "s"
-        }.`
-      );
+      const d = data.data as {
+        invoice_number: string;
+        item_count: number;
+        period_lead_count?: number;
+        prior_invoice_count?: number;
+        prior_balance_cents?: number;
+        period_cents?: number;
+        prior_invoice_numbers?: string[];
+        total_cents?: number;
+      };
+      const priorCount = d.prior_invoice_count ?? 0;
+      const parts = [
+        `Created ${d.invoice_number}`,
+        `${d.period_lead_count ?? d.item_count} current lead${(d.period_lead_count ?? d.item_count) === 1 ? "" : "s"}`,
+      ];
+      if (priorCount > 0) {
+        parts.push(
+          `+ ${priorCount} prior unpaid (${(d.prior_invoice_numbers ?? []).join(", ")}) = ${currency(d.total_cents)} total due`
+        );
+      }
+      setCreateOk(parts.join(" · ") + ".");
       setCreateNotes("");
       await fetchInvoices();
     } finally {
@@ -442,7 +480,8 @@ export default function AdminInvoicesPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Invoices</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Create drafts from billable assigned leads, then mark sent or paid.
+            Create drafts from billable assigned leads. Unpaid prior invoices for the same partner are
+            rolled into the new invoice automatically.
           </p>
         </div>
 
@@ -474,7 +513,7 @@ export default function AdminInvoicesPage() {
             />
             <input
               type="date"
-              required
+bsp required
               value={periodEnd}
               onChange={(e) => setPeriodEnd(e.target.value)}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
@@ -498,7 +537,8 @@ export default function AdminInvoicesPage() {
           {createOk && <p className="text-sm text-green-600">{createOk}</p>}
           <p className="text-xs text-slate-400">
             Pulls leads with billable_status = billable assigned to that partner in the date range.
-            Set billing amounts on leads in production LIF if amounts are zero.
+            Any sent/partially paid invoices with a remaining balance for the same partner are included
+            with full line-item detail; their unpaid balance is added to the new total due.
           </p>
         </form>
 
