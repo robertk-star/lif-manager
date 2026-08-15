@@ -50,6 +50,10 @@ function addDays(dateValue: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function isYmd(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 function leadName(lead: LeadForInvoice) {
   const name = `${lead.first_name ?? ""} ${lead.last_name ?? ""}`.trim();
   return name || "Unnamed Lead";
@@ -158,6 +162,7 @@ export async function POST(request: Request) {
   const periodStart = String(body.period_start ?? "").trim();
   const periodEnd = String(body.period_end ?? "").trim();
   const notes = String(body.notes ?? "").trim();
+  const dueDateInput = String(body.due_date ?? "").trim();
 
   if (!partnerId || !periodStart || !periodEnd) {
     return NextResponse.json(
@@ -168,6 +173,17 @@ export async function POST(request: Request) {
 
   if (periodEnd < periodStart) {
     return NextResponse.json({ error: "Period end must be on or after period start." }, { status: 422 });
+  }
+
+  // Due date: use provided value, otherwise default to period_end + 30 days
+  let dueDate = dueDateInput;
+  if (!dueDate) {
+    dueDate = addDays(periodEnd, 30);
+  } else if (!isYmd(dueDate)) {
+    return NextResponse.json(
+      { error: "due_date must be YYYY-MM-DD when provided." },
+      { status: 422 }
+    );
   }
 
   const { data: partner, error: partnerError } = await supabaseAdmin
@@ -251,7 +267,7 @@ export async function POST(request: Request) {
       amount_paid_cents: 0,
       balance_due_cents: totalCents,
       notes: combinedNotes || null,
-      due_date: addDays(periodEnd, 30),
+      due_date: dueDate,
       created_by: "admin",
     })
     .select("*")
@@ -270,7 +286,6 @@ export async function POST(request: Request) {
 
   const newInvoiceId = (invoice as { id: string }).id;
 
-  // Build items carefully: lead_id required when possible, positive amounts only, safe billing_status
   type ItemInsert = {
     invoice_id: string;
     lead_id?: string;
@@ -303,7 +318,6 @@ export async function POST(request: Request) {
     const fullyUnpaid = paid <= 0;
 
     if (fullyUnpaid && priorItems.length > 0) {
-      // Copy each prior line item with original lead_id so details appear on the new invoice
       for (const pi of priorItems) {
         const row: ItemInsert = {
           invoice_id: newInvoiceId,
@@ -315,7 +329,6 @@ export async function POST(request: Request) {
         items.push(row);
       }
     } else {
-      // Partial payment or no stored items: one line for remaining balance with detail in description
       const detailParts = priorItems.map((pi) => pi.description).filter(Boolean);
       const detail =
         detailParts.length > 0
@@ -334,10 +347,8 @@ export async function POST(request: Request) {
     }
   }
 
-  // Drop zero-amount rows (can violate checks) except we already avoid them
   const insertItems = items.filter((i) => i.amount_cents !== 0 || leads.length === 0);
 
-  // Ensure sum matches intended total (period + prior balances)
   const itemsSum = insertItems.reduce((s, i) => s + i.amount_cents, 0);
   if (itemsSum !== totalCents && totalCents > 0) {
     const delta = totalCents - itemsSum;
@@ -352,7 +363,6 @@ export async function POST(request: Request) {
       if (anchor) adj.lead_id = anchor;
       insertItems.push(adj);
     } else if (delta < 0 && insertItems.length > 0) {
-      // Reduce the last prior-related line rather than inserting a negative amount
       const last = insertItems[insertItems.length - 1];
       last.amount_cents = Math.max(0, last.amount_cents + delta);
     }
